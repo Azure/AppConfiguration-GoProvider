@@ -15,16 +15,22 @@ import (
 )
 
 type AzureAppConfiguration struct {
-	keyValues     map[string]any
-	keyValueETags map[Selector][]*azcore.ETag
-	kvSelectors   []Selector
-	trimPrefixes  []string
+	keyValues        map[string]any
+	featureFlags     map[string]any
+	keyValueETags    map[Selector][]*azcore.ETag
+	featureFlagETags map[Selector][]*azcore.ETag
 
-	clientManager *configurationClientManager
+	ffEnabled    bool
+	kvSelectors  []Selector
+	ffSelectors  []Selector
+	trimPrefixes []string
+
+	clientManager  *configurationClientManager
+	settingsClient settingsClient
 }
 
 func Load(ctx context.Context, authentication AuthenticationOptions, options *Options) (*AzureAppConfiguration, error) {
-	if err := verifyAuthenticationOptions(authentication); err != nil {
+	if err := verifyAuthenticationOptions(authOptions); err != nil {
 		return nil, err
 	}
 
@@ -40,9 +46,17 @@ func Load(ctx context.Context, authentication AuthenticationOptions, options *Op
 	azappcfg := new(AzureAppConfiguration)
 	azappcfg.keyValues = make(map[string]any)
 	azappcfg.keyValueETags = make(map[Selector][]*azcore.ETag)
+	azappcfg.featureFlags = make(map[string]any)
+	azappcfg.featureFlagETags = make(map[Selector][]*azcore.ETag)
+
 	azappcfg.kvSelectors = deduplicateSelectors(options.Selectors)
+	azappcfg.ffEnabled = options.FeatureFlagOptions.Enabled
 	azappcfg.trimPrefixes = options.TrimKeyPrefixes
 	azappcfg.clientManager = clientManager
+
+	if azappcfg.ffEnabled {
+		azappcfg.ffSelectors = getValidFeatureFlagSelectors(options.FeatureFlagOptions.Selectors)
+	}
 
 	if err := azappcfg.load(ctx); err != nil {
 		return nil, err
@@ -52,15 +66,27 @@ func Load(ctx context.Context, authentication AuthenticationOptions, options *Op
 }
 
 func (azappcfg *AzureAppConfiguration) load(ctx context.Context) error {
-	keyValuesClient := &selectorSettingsClient{
+	eg, egCtx := errgroup.WithContext(ctx)
+
+	kvClient := &selectorSettingsClient{
 		selectors: azappcfg.kvSelectors,
 		client:    azappcfg.clientManager.staticClient.client,
 	}
 
-	eg, egCtx := errgroup.WithContext(ctx)
 	eg.Go(func() error {
-		return azappcfg.loadKeyValues(egCtx, keyValuesClient)
+		return azappcfg.loadKeyValues(egCtx, kvClient)
 	})
+
+	if azappcfg.ffEnabled {
+		ffClient := &selectorSettingsClient{
+			selectors: azappcfg.ffSelectors,
+			client:    azappcfg.clientManager.staticClient.client,
+		}
+
+		eg.Go(func() error {
+			return azappcfg.loadFeatureFlags(egCtx, ffClient)
+		})
+	}
 
 	return eg.Wait()
 }
@@ -108,6 +134,44 @@ func (azappcfg *AzureAppConfiguration) loadKeyValues(ctx context.Context, settin
 
 	azappcfg.keyValueETags = settingsResponse.eTags
 	azappcfg.keyValues = kvSettings
+
+	return nil
+}
+
+func (azappcfg *AzureAppConfiguration) loadFeatureFlags(ctx context.Context, settingsClient settingsClient) error {
+	settingsResponse, err := settingsClient.getSettings(ctx)
+	if err != nil {
+		return err
+	}
+
+	dedupFeatureFlags := make(map[string]any, len(settingsResponse.settings))
+	for _, setting := range settingsResponse.settings {
+		if setting.Key != nil {
+			var v any
+			if err := json.Unmarshal([]byte(*setting.Value), &v); err != nil {
+				log.Printf("Invalid feature flag setting: key=%s, error=%s, just ignore", *setting.Key, err.Error())
+				continue
+			}
+			dedupFeatureFlags[*setting.Key] = v
+		}
+	}
+
+	featureFlags := make([]any, len(dedupFeatureFlags))
+	i := 0
+	for _, v := range dedupFeatureFlags {
+		featureFlags[i] = v
+		i++
+	}
+
+	// "feature_management": {"feature_flags": [{...}, {...}]}
+	ffSettings := map[string]any{
+		featureManagementSectionKey: map[string]any{
+			featureFlagSectionKey: featureFlags,
+		},
+	}
+
+	azappcfg.featureFlagETags = settingsResponse.eTags
+	azappcfg.featureFlags = ffSettings
 
 	return nil
 }

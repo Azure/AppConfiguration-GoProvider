@@ -51,6 +51,99 @@ func TestLoadKeyValues_Success(t *testing.T) {
 	assert.Equal(t, map[string]interface{}{"jsonKey": "jsonValue"}, azappcfg.keyValues["key2"])
 }
 
+func TestLoadFeatureFlags_Success(t *testing.T) {
+	ctx := context.Background()
+	mockClient := new(mockSettingsClient)
+
+	value1 := `{
+		"id": "Beta",
+		"description": "",
+		"enabled": false,
+		"conditions": {
+			"client_filters": []
+		}
+	}`
+
+	value2 := `{
+		"id": "Alpha",
+		"description": "Test feature",
+		"enabled": true,
+		"conditions": {
+			"client_filters": [
+				{
+					"name": "TestGroup",
+					"parameters": {"Users": ["user1@example.com", "user2@example.com"]}
+				}
+			]
+		}
+	}`
+
+	mockResponse := &settingsResponse{
+		settings: []azappconfig.Setting{
+			{Key: toPtr(".appconfig.featureflag/Beta"), Value: &value1, ContentType: toPtr(featureFlagContentType)},
+			{Key: toPtr(".appconfig.featureflag/Alpha"), Value: &value2, ContentType: toPtr(featureFlagContentType)},
+		},
+		eTags: map[Selector][]*azcore.ETag{},
+	}
+
+	mockClient.On("getSettings", ctx).Return(mockResponse, nil)
+
+	azappcfg := &AzureAppConfiguration{
+		clientManager: &configurationClientManager{
+			staticClient: &configurationClientWrapper{client: &azappconfig.Client{}},
+		},
+		ffSelectors:    getValidFeatureFlagSelectors([]Selector{}),
+		settingsClient: mockClient,
+		featureFlags:   make(map[string]any),
+	}
+
+	err := azappcfg.loadFeatureFlags(ctx)
+	assert.NoError(t, err)
+	// Verify feature flag structure is created correctly
+	assert.Contains(t, azappcfg.featureFlags, featureManagementSectionKey)
+	featureManagement, ok := azappcfg.featureFlags[featureManagementSectionKey].(map[string]any)
+	assert.True(t, ok, "feature_management should be a map")
+
+	// Verify feature_flags array exists
+	assert.Contains(t, featureManagement, featureFlagSectionKey)
+	featureFlags, ok := featureManagement[featureFlagSectionKey].([]any)
+	assert.True(t, ok, "feature_flags should be an array")
+
+	// Verify we have 2 feature flags
+	assert.Len(t, featureFlags, 2)
+
+	// Verify the feature flags are properly unmarshaled
+	foundBeta := false
+	foundAlpha := false
+	for _, flag := range featureFlags {
+		flagMap, ok := flag.(map[string]any)
+		assert.True(t, ok, "feature flag should be a map")
+
+		if id, ok := flagMap["id"].(string); ok {
+			switch id {
+			case "Beta":
+				foundBeta = true
+				assert.Equal(t, false, flagMap["enabled"])
+			case "Alpha":
+				foundAlpha = true
+				assert.Equal(t, true, flagMap["enabled"])
+				assert.Equal(t, "Test feature", flagMap["description"])
+
+				// Verify conditions structure
+				conditions, ok := flagMap["conditions"].(map[string]any)
+				assert.True(t, ok, "conditions should be a map")
+
+				clientFilters, ok := conditions["client_filters"].([]any)
+				assert.True(t, ok, "client_filters should be an array")
+				assert.Len(t, clientFilters, 1)
+			}
+		}
+	}
+
+	assert.True(t, foundBeta, "Should have found Beta feature flag")
+	assert.True(t, foundAlpha, "Should have found Alpha feature flag")
+}
+
 func TestLoadKeyValues_WithTrimPrefix(t *testing.T) {
 	ctx := context.Background()
 	mockClient := new(mockSettingsClient)

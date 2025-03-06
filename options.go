@@ -17,6 +17,7 @@ type Options struct {
 	TrimKeyPrefixes []string
 	Selectors       []Selector
 	RefreshOptions  KeyValueRefreshOptions
+	FeatureFlagOptions FeatureFlagOptions
 	ClientOptions   *azappconfig.ClientOptions
 }
 
@@ -57,4 +58,24 @@ type KeyValueRefreshOptions struct {
 type WatchedSetting struct {
 	Key   string
 	Label string
+}
+
+// FeatureFlagOptions contains optional parameters for Azure App Configuration feature flags that will be parsed and transformed into feature management configuration.
+type FeatureFlagOptions struct {
+	// Enabled specifies whether feature flags will be loaded from Azure App Configuration.
+	Enabled        bool
+
+	// If no selectors are provided, all feature flags with no label will be loaded when enabled feature flags.
+	Selectors      []Selector
+
+	// RefreshOptions specifies the behavior of feature flags refresh.
+	// Refresh interval must be greater than 1 second. If not provided, the default interval 30 seconds will be used
+	// All loaded feature flags will be automatically watched when feature flags refresh is enabled.
+	RefreshOptions RefreshOptions
+}
+
+// RefreshOptions contains optional parameters to configure the behavior of refresh
+type RefreshOptions struct {
+	Interval time.Duration
+	Enabled  bool
 }

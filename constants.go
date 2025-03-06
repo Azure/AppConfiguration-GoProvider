@@ -32,3 +32,15 @@ const (
 	secretReferenceContentType string = "application/vnd.microsoft.appconfig.keyvaultref+json;charset=utf-8"
 	featureFlagContentType     string = "application/vnd.microsoft.appconfig.ff+json;charset=utf-8"
 )
+
+// Feature flag constants
+const (
+	// featureFlagPrefixKey is the prefix used to identify feature flag settings
+	featureFlagPrefixKey = ".appconfig.featureflag/"
+
+	// featureFlagSectionKey is the section name used in the feature flag configuration
+	featureFlagSectionKey = "feature_flags"
+
+	// featureManagementSectionKey is the top-level section name for feature management
+	featureManagementSectionKey = "feature_management"
+)
