@@ -40,16 +40,3 @@ const (
 	// DefaultSeparator is the default character used to separate nested configuration paths
 	DefaultSeparator = "."
 )
-
-// Configuration client constants
-const (
-	EndpointKey                string        = "Endpoint"
-	SecretKey                  string        = "Secret"
-	IdKey                      string        = "Id"
-	MaxBackoffDuration         time.Duration = time.Minute * 10
-	MinBackoffDuration         time.Duration = time.Second * 30
-	JitterRatio                float64       = 0.25
-	SafeShiftLimit             int           = 63
-	SecretReferenceContentType string        = "application/vnd.microsoft.appconfig.keyvaultref+json;charset=utf-8"
-	FeatureFlagContentType     string        = "application/vnd.microsoft.appconfig.ff+json;charset=utf-8"
-)

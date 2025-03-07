@@ -4,7 +4,6 @@
 package azureappconfiguration
 
 import (
-	"context"
 	"fmt"
 	"math"
 	"math/rand/v2"
@@ -15,10 +14,23 @@ import (
 	"github.com/Azure/azure-sdk-for-go/sdk/data/azappconfig"
 )
 
+// Configuration client constants
+const (
+	EndpointKey                string        = "Endpoint"
+	SecretKey                  string        = "Secret"
+	IdKey                      string        = "Id"
+	MaxBackoffDuration         time.Duration = time.Minute * 10
+	MinBackoffDuration         time.Duration = time.Second * 30
+	JitterRatio                float64       = 0.25
+	SafeShiftLimit             int           = 63
+	SecretReferenceContentType string        = "application/vnd.microsoft.appconfig.keyvaultref+json;charset=utf-8"
+	FeatureFlagContentType     string        = "application/vnd.microsoft.appconfig.ff+json;charset=utf-8"
+)
+
 // configurationClientManager handles creation and management of app configuration clients
 type configurationClientManager struct {
 	clientOptions *azappconfig.ClientOptions
-	staticClients []*configurationClientWrapper
+	staticClient *configurationClientWrapper
 	endpoint      string
 	credential    azcore.TokenCredential
 	secret        string
@@ -34,7 +46,7 @@ type configurationClientWrapper struct {
 }
 
 // newConfigurationClientManager creates a new configuration client manager
-func newConfigurationClientManager(ctx context.Context, authOptions AuthenticationOptions, clientOptions *azappconfig.ClientOptions) (*configurationClientManager, error) {
+func newConfigurationClientManager(authOptions AuthenticationOptions, clientOptions *azappconfig.ClientOptions) (*configurationClientManager, error) {
 	manager := &configurationClientManager{
 		clientOptions: clientOptions,
 	}
@@ -81,19 +93,17 @@ func (manager *configurationClientManager) initializeClient(authOptions Authenti
 	}
 
 	// Initialize the static client wrapper
-	manager.staticClients = []*configurationClientWrapper{{
-		Endpoint:       manager.endpoint,
-		Client:         staticClient,
-		BackOffEndTime: time.Time{},
-		FailedAttempts: 0,
-	}}
+	manager.staticClient = &configurationClientWrapper{
+		Endpoint: manager.endpoint,
+		Client:   staticClient,
+	}
 
 	return nil
 }
 
 // getClients returns the available configuration clients
-func (manager *configurationClientManager) getClients(ctx context.Context) []*configurationClientWrapper {
-	return manager.staticClients
+func (manager *configurationClientManager) getClients() []*configurationClientWrapper {
+	return []*configurationClientWrapper{manager.staticClient}
 }
 
 // calculateBackoffDuration calculates the exponential backoff duration with jitter
@@ -128,26 +138,12 @@ func addJitter(duration time.Duration) time.Duration {
 	return duration + time.Duration(randomJitter)
 }
 
-// updateClientBackoffStatus updates the client's backoff status based on success/failure
-func updateClientBackoffStatus(clientWrapper *configurationClientWrapper, successful bool) {
+// updateBackoffStatus updates the client's backoff status based on success/failure
+func (clientWrapper *configurationClientWrapper) updateBackoffStatus(successful bool) {
 	if successful {
-		// Reset backoff on success
 		clientWrapper.BackOffEndTime = time.Time{}
-
-		// Reset FailedAttempts when client succeeded
-		if clientWrapper.FailedAttempts > 0 {
-			clientWrapper.FailedAttempts = 0
-		}
-
-		// Use negative value to indicate successful attempt
-		clientWrapper.FailedAttempts--
+		clientWrapper.FailedAttempts = 0
 	} else {
-		// Reset FailedAttempts counter if it was previously successful
-		if clientWrapper.FailedAttempts < 0 {
-			clientWrapper.FailedAttempts = 0
-		}
-
-		// Increment failed attempts and set backoff time
 		clientWrapper.FailedAttempts++
 		clientWrapper.BackOffEndTime = time.Now().Add(calculateBackoffDuration(clientWrapper.FailedAttempts))
 	}

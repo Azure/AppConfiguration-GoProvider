@@ -21,8 +21,8 @@ import (
 type AzureAppConfiguration struct {
 	keyValues        map[string]any
 	keyValueETags    map[Selector][]*azcore.ETag
-	kvSelectors  []Selector
-	trimPrefixes []string
+	kvSelectors      []Selector
+	trimPrefixes     []string
 	onRefreshSuccess func()
 
 	clientManager  *configurationClientManager
@@ -39,7 +39,7 @@ func Load(ctx context.Context, authOptions AuthenticationOptions, cfgOptions *Op
 		options = &Options{}
 	}
 
-	clientManager, err := newConfigurationClientManager(ctx, authOptions, options.ClientOptions)
+	clientManager, err := newConfigurationClientManager(authOptions, options.ClientOptions)
 	if err != nil {
 		return nil, err
 	}
@@ -81,23 +81,17 @@ func (azappcfg *AzureAppConfiguration) GetBytes(options ConstructionOptions) []b
 
 func (azappcfg *AzureAppConfiguration) load(ctx context.Context) error {
 	type loadTask func(_ context.Context) error
-	tasks := []loadTask{
-		azappcfg.loadKeyValues,
-	}
-
 	eg, egCtx := errgroup.WithContext(ctx)
-	for _, task := range tasks {
+	for _, task := range []loadTask{
+		azappcfg.loadKeyValues,
+	} {
 		task := task
 		eg.Go(func() error {
 			return task(egCtx)
 		})
 	}
 
-	if err := eg.Wait(); err != nil {
-		return err
-	}
-
-	return nil
+	return eg.Wait()
 }
 
 func (azappcfg *AzureAppConfiguration) loadKeyValues(ctx context.Context) error {
@@ -118,7 +112,7 @@ func (azappcfg *AzureAppConfiguration) loadKeyValues(ctx context.Context) error 
 		if setting.Key == nil {
 			continue
 		}
-		trimmedKey := trimPrefix(*setting.Key, azappcfg.trimPrefixes)
+		trimmedKey := azappcfg.trimPrefix(*setting.Key)
 		if len(trimmedKey) == 0 {
 			log.Printf("Key of the setting '%s' is trimmed to the empty string, just ignore it", *setting.Key)
 			continue
@@ -154,24 +148,31 @@ func (azappcfg *AzureAppConfiguration) loadKeyValues(ctx context.Context) error 
 }
 
 func (azappcfg *AzureAppConfiguration) executeFailoverPolicy(ctx context.Context, settingsClient settingsClient) (*settingsResponse, error) {
-	clients := azappcfg.clientManager.getClients(ctx)
-	for _, clientWrapper := range clients {
+	for _, clientWrapper := range azappcfg.clientManager.getClients() {
 		settingsResponse, err := settingsClient.getSettings(ctx, clientWrapper.Client)
-		successful := true
 		if err != nil {
-			successful = false
-			updateClientBackoffStatus(clientWrapper, successful)
+			clientWrapper.updateBackoffStatus(false)
 			if isFailoverable(err) {
 				continue
 			}
 			return nil, err
 		}
 
-		updateClientBackoffStatus(clientWrapper, successful)
+		clientWrapper.updateBackoffStatus(true)
 		return settingsResponse, nil
 	}
 
-	return nil, fmt.Errorf("All app configuration clients failed to get settings.")
+	return nil, fmt.Errorf("all app configuration clients failed to get settings.")
+}
+
+func (azappcfg *AzureAppConfiguration) trimPrefix(key string) string {
+	for _, v := range azappcfg.trimPrefixes {
+		if strings.HasPrefix(key, v) {
+			return strings.TrimPrefix(key, v)
+		}
+	}
+
+	return key
 }
 
 func getValidKeyValuesSelectors(selectors []Selector) []Selector {
@@ -185,18 +186,6 @@ func getValidFeatureFlagSelectors(selectors []Selector) []Selector {
 	}
 
 	return s
-}
-
-func trimPrefix(key string, prefixToTrim []string) string {
-	if len(prefixToTrim) > 0 {
-		for _, v := range prefixToTrim {
-			if strings.HasPrefix(key, v) {
-				return strings.TrimPrefix(key, v)
-			}
-		}
-	}
-
-	return key
 }
 
 func isJsonContentType(contentType *string) bool {
@@ -218,51 +207,44 @@ func isFailoverable(err error) bool {
 	}
 
 	var respErr *azcore.ResponseError
-	if errors.As(err, &respErr) &&
+	return errors.As(err, &respErr) &&
 		(respErr.StatusCode == http.StatusTooManyRequests ||
 			respErr.StatusCode == http.StatusRequestTimeout ||
-			respErr.StatusCode >= http.StatusInternalServerError) {
-		return true
-	}
-
-	return false
+			respErr.StatusCode >= http.StatusInternalServerError)
 }
 
 func deduplicateSelectors(selectors []Selector) []Selector {
-	var result []Selector
-	findDuplicate := false
-
-	if len(selectors) > 0 {
-		// Deduplicate the filters in a way that in honor of what user tell us
-		// If user populate the selectors with  `{KeyFilter: "one*", LabelFilter: "prod"}, {KeyFilter: "two*", LabelFilter: "dev"}, {KeyFilter: "one*", LabelFilter: "prod"}`
-		// We deduplicate it into `{KeyFilter: "two*", LabelFilter: "dev"}, {KeyFilter: "one*", LabelFilter: "prod"}`
-		// not `{KeyFilter: "one*", LabelFilter: "prod"}, {KeyFilter: "two*", LabelFilter: "dev"}`
-		for i := len(selectors) - 1; i >= 0; i-- {
-			findDuplicate = false
-			// Normalize the empty label filter to NullLabel
-			if selectors[i].LabelFilter == "" {
-				selectors[i].LabelFilter = NullLabel
-			}
-
-			for j := 0; j < len(result); j++ {
-				if result[j].KeyFilter == selectors[i].KeyFilter &&
-					result[j].LabelFilter == selectors[i].LabelFilter {
-					findDuplicate = true
-					break
-				}
-			}
-			if !findDuplicate {
-				result = append(result, selectors[i])
-			}
+	// If no selectors provided, return the default selector
+	if len(selectors) == 0 {
+		return []Selector{
+			{
+				KeyFilter:   WildCard,
+				LabelFilter: NullLabel,
+			},
 		}
-		reverse(result)
-	} else {
-		// If no selectors provided, we will load all key values with no label
-		result = append(result, Selector{
-			KeyFilter:   WildCard,
-			LabelFilter: NullLabel,
-		})
 	}
 
+	// Create a map to track unique selectors
+	// Use string key combining KeyFilter and LabelFilter to identify unique selectors
+	seen := make(map[string]struct{})
+	var result []Selector
+
+	// Process the selectors in reverse order to maintain the behavior
+	// where later duplicates take precedence over earlier ones
+	for i := len(selectors) - 1; i >= 0; i-- {
+		if selectors[i].LabelFilter == "" {
+			selectors[i].LabelFilter = NullLabel
+		}
+
+		// Create a unique key for the selector
+		key := selectors[i].KeyFilter + ":" + selectors[i].LabelFilter
+		if _, exists := seen[key]; !exists {
+			seen[key] = struct{}{}
+			result = append(result, selectors[i])
+		}
+	}
+
+	// Reverse the result to maintain the original order
+	reverse(result)
 	return result
 }

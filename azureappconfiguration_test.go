@@ -38,7 +38,7 @@ func TestLoadKeyValues_Success(t *testing.T) {
 
 	azappcfg := &AzureAppConfiguration{
 		clientManager: &configurationClientManager{
-			staticClients: []*configurationClientWrapper{{Client: &azappconfig.Client{}}},
+			staticClient: &configurationClientWrapper{Client: &azappconfig.Client{}},
 		},
 		kvSelectors:    getValidKeyValuesSelectors([]Selector{}),
 		settingsClient: mockClient,
@@ -66,7 +66,7 @@ func TestLoadKeyValues_WithTrimPrefix(t *testing.T) {
 
 	azappcfg := &AzureAppConfiguration{
 		clientManager: &configurationClientManager{
-			staticClients: []*configurationClientWrapper{{Client: &azappconfig.Client{}}},
+			staticClient: &configurationClientWrapper{Client: &azappconfig.Client{}},
 		},
 		kvSelectors:    getValidKeyValuesSelectors([]Selector{}),
 		trimPrefixes:   []string{"prefix:", "other:"},
@@ -95,7 +95,7 @@ func TestLoadKeyValues_EmptyKeyAfterTrim(t *testing.T) {
 
 	azappcfg := &AzureAppConfiguration{
 		clientManager: &configurationClientManager{
-			staticClients: []*configurationClientWrapper{{Client: &azappconfig.Client{}}},
+			staticClient: &configurationClientWrapper{Client: &azappconfig.Client{}},
 		},
 		kvSelectors:    getValidKeyValuesSelectors([]Selector{}),
 		trimPrefixes:   []string{"prefix:"},
@@ -123,7 +123,7 @@ func TestLoadKeyValues_InvalidJson(t *testing.T) {
 
 	azappcfg := &AzureAppConfiguration{
 		clientManager: &configurationClientManager{
-			staticClients: []*configurationClientWrapper{{Client: &azappconfig.Client{}}},
+			staticClient: &configurationClientWrapper{Client: &azappconfig.Client{}},
 		},
 		kvSelectors:    getValidKeyValuesSelectors([]Selector{}),
 		settingsClient: mockClient,
@@ -170,7 +170,7 @@ func TestDeduplicateSelectors(t *testing.T) {
 			},
 			expectedOutput: []Selector{
 				{KeyFilter: "two*", LabelFilter: "dev"},
-				{KeyFilter: "one*", LabelFilter: "prod"},	
+				{KeyFilter: "one*", LabelFilter: "prod"},
 			},
 		},
 		{
@@ -190,6 +190,68 @@ func TestDeduplicateSelectors(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			result := deduplicateSelectors(test.input)
 			assert.Equal(t, test.expectedOutput, result)
+		})
+	}
+}
+
+func TestTrimPrefix(t *testing.T) {
+	tests := []struct {
+		name           string
+		key            string
+		prefixesToTrim []string
+		expected       string
+	}{
+		{
+			name:           "no prefixes to trim",
+			key:            "appSettings:theme",
+			prefixesToTrim: []string{},
+			expected:       "appSettings:theme",
+		},
+		{
+			name:           "empty prefixes list",
+			key:            "appSettings:theme",
+			prefixesToTrim: nil,
+			expected:       "appSettings:theme",
+		},
+		{
+			name:           "matching prefix",
+			key:            "appSettings:theme",
+			prefixesToTrim: []string{"appSettings:"},
+			expected:       "theme",
+		},
+		{
+			name:           "non-matching prefix",
+			key:            "appSettings:theme",
+			prefixesToTrim: []string{"config:"},
+			expected:       "appSettings:theme",
+		},
+		{
+			name:           "multiple prefixes with match",
+			key:            "appSettings:theme",
+			prefixesToTrim: []string{"config:", "appSettings:", "settings:"},
+			expected:       "theme",
+		},
+		{
+			name:           "multiple prefixes with no match",
+			key:            "appSettings:theme",
+			prefixesToTrim: []string{"config:", "settings:"},
+			expected:       "appSettings:theme",
+		},
+		{
+			name:           "prefix equals key",
+			key:            "appSettings:",
+			prefixesToTrim: []string{"appSettings:"},
+			expected:       "",
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			azappcfg := &AzureAppConfiguration{
+				trimPrefixes: test.prefixesToTrim,
+			}
+			result := azappcfg.trimPrefix(test.key)
+			assert.Equal(t, test.expected, result)
 		})
 	}
 }

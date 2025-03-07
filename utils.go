@@ -11,10 +11,9 @@ import (
 
 
 func verifyAuthenticationOptions(authOptions AuthenticationOptions) error {
-	if authOptions.ConnectionString == "" {
-		if !(authOptions.Endpoint != "" && authOptions.Credential != nil) {
-			return fmt.Errorf("Either connection string or endpoint and credential must be provided")
-		}
+	if authOptions.ConnectionString == "" &&
+		!(authOptions.Endpoint != "" && authOptions.Credential != nil) {
+		return fmt.Errorf("either connection string or endpoint and credential must be provided")
 	}
 
 	return nil
@@ -32,21 +31,21 @@ func verifyOptions(options *Options) error {
 	if options.RefreshOptions.Enabled {
 		if options.RefreshOptions.Interval > 0 && 
 			options.RefreshOptions.Interval < MinimalRefreshInterval {
-			return fmt.Errorf("Key value refresh interval cannot be less than %s", MinimalRefreshInterval)
+			return fmt.Errorf("key value refresh interval cannot be less than %s", MinimalRefreshInterval)
 		}
 
 		for _, watchedSetting := range options.RefreshOptions.WatchedSettings {
 			if watchedSetting.Key == "" {
-				return fmt.Errorf("Watched setting key cannot be empty")
+				return fmt.Errorf("watched setting key cannot be empty")
 			}
 
 			if strings.Contains(watchedSetting.Key, "*") || strings.Contains(watchedSetting.Key, ",") {
-				return fmt.Errorf("Watched setting key cannot contain '*' or ','")
+				return fmt.Errorf("watched setting key cannot contain '*' or ','")
 			}
 
 			if watchedSetting.Label != "" && 
 				(strings.Contains(watchedSetting.Label, "*") || strings.Contains(watchedSetting.Label, ",")) {
-				return fmt.Errorf("Watched setting label cannot contain '*' or ','")
+				return fmt.Errorf("watched setting label cannot contain '*' or ','")
 			}
 		}
 	}
@@ -54,7 +53,7 @@ func verifyOptions(options *Options) error {
 	if options.KeyVaultOptions.RefreshOptions.Enabled {
 		if options.KeyVaultOptions.RefreshOptions.Interval > 0 && 
 			options.KeyVaultOptions.RefreshOptions.Interval < KeyVaultMinimalRefreshInterval {
-			return fmt.Errorf("Key vault refresh interval cannot be less than %s", MinimalRefreshInterval)
+			return fmt.Errorf("key vault refresh interval cannot be less than %s", KeyVaultMinimalRefreshInterval)
 		}
 	}
 
@@ -65,7 +64,7 @@ func verifyOptions(options *Options) error {
 
 		if options.FeatureFlagOptions.RefreshOptions.Interval > 0 && 
 			options.FeatureFlagOptions.RefreshOptions.Interval < MinimalRefreshInterval {
-			return fmt.Errorf("Feature flag refresh interval cannot be less than %s", MinimalRefreshInterval)
+			return fmt.Errorf("feature flag refresh interval cannot be less than %s", MinimalRefreshInterval)
 		}
 	}
 
@@ -75,11 +74,11 @@ func verifyOptions(options *Options) error {
 func verifySelectors(selectors []Selector) error {
 	for _, selector := range selectors {
 		if selector.KeyFilter == "" {
-			return fmt.Errorf("Key filter cannot be empty")
+			return fmt.Errorf("key filter cannot be empty")
 		}
 
 		if strings.Contains(selector.LabelFilter, "*") || strings.Contains(selector.LabelFilter, ",") {
-			return fmt.Errorf("Label filter cannot contain '*' or ','")
+			return fmt.Errorf("label filter cannot contain '*' or ','")
 		}
 	}
 
@@ -118,7 +117,7 @@ func verifySeparator(separator string) error {
 	}
 
 	if !isValid {
-		return fmt.Errorf("Invalid separator '%s'. Supported values: %s.", separator, strings.Join(validSeparators, ", "))
+		return fmt.Errorf("invalid separator '%s'. Supported values: %s.", separator, strings.Join(validSeparators, ", "))
 	}
 	return nil
 }
