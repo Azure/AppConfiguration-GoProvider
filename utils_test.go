@@ -83,31 +83,6 @@ func TestVerifyOptions(t *testing.T) {
 			},
 			expectedError: true,
 		},
-		{
-			name: "invalid key vault refresh interval",
-			options: &Options{
-				KeyVaultOptions: KeyVaultOptions{
-					RefreshOptions: RefreshOptions{
-						Enabled:  true,
-						Interval: time.Second * 30, // Less than minimum (1 minute)
-					},
-				},
-			},
-			expectedError: true,
-		},
-		{
-			name: "invalid feature flag refresh interval",
-			options: &Options{
-				FeatureFlagOptions: FeatureFlagOptions{
-					Enabled: true,
-					RefreshOptions: RefreshOptions{
-						Enabled:  true,
-						Interval: time.Millisecond * 500, // Less than minimum (1 second)
-					},
-				},
-			},
-			expectedError: true,
-		},
 	}
 
 	for _, test := range tests {
@@ -350,5 +325,3 @@ func TestVerifySeparator(t *testing.T) {
 		})
 	}
 }
-
-

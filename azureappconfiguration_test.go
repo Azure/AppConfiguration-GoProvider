@@ -39,9 +39,9 @@ func TestLoadKeyValues_Success(t *testing.T) {
 
 	azappcfg := &AzureAppConfiguration{
 		clientManager: &configurationClientManager{
-			staticClient: &configurationClientWrapper{Client: &azappconfig.Client{}},
+			staticClient: &configurationClientWrapper{client: &azappconfig.Client{}},
 		},
-		kvSelectors:    getValidKeyValuesSelectors([]Selector{}),
+		kvSelectors:    deduplicateSelectors([]Selector{}),
 		settingsClient: mockClient,
 		keyValues:      make(map[string]any),
 	}
@@ -73,9 +73,9 @@ func TestLoadKeyValues_WithTrimPrefix(t *testing.T) {
 
 	azappcfg := &AzureAppConfiguration{
 		clientManager: &configurationClientManager{
-			staticClient: &configurationClientWrapper{Client: &azappconfig.Client{}},
+			staticClient: &configurationClientWrapper{client: &azappconfig.Client{}},
 		},
-		kvSelectors:    getValidKeyValuesSelectors([]Selector{}),
+		kvSelectors:    deduplicateSelectors([]Selector{}),
 		trimPrefixes:   []string{"prefix:", "other:"},
 		settingsClient: mockClient,
 		keyValues:      make(map[string]any),
@@ -104,9 +104,9 @@ func TestLoadKeyValues_EmptyKeyAfterTrim(t *testing.T) {
 
 	azappcfg := &AzureAppConfiguration{
 		clientManager: &configurationClientManager{
-			staticClient: &configurationClientWrapper{Client: &azappconfig.Client{}},
+			staticClient: &configurationClientWrapper{client: &azappconfig.Client{}},
 		},
-		kvSelectors:    getValidKeyValuesSelectors([]Selector{}),
+		kvSelectors:    deduplicateSelectors([]Selector{}),
 		trimPrefixes:   []string{"prefix:"},
 		settingsClient: mockClient,
 		keyValues:      make(map[string]any),
@@ -134,9 +134,9 @@ func TestLoadKeyValues_InvalidJson(t *testing.T) {
 
 	azappcfg := &AzureAppConfiguration{
 		clientManager: &configurationClientManager{
-			staticClient: &configurationClientWrapper{Client: &azappconfig.Client{}},
+			staticClient: &configurationClientWrapper{client: &azappconfig.Client{}},
 		},
-		kvSelectors:    getValidKeyValuesSelectors([]Selector{}),
+		kvSelectors:    deduplicateSelectors([]Selector{}),
 		settingsClient: mockClient,
 		keyValues:      make(map[string]any),
 	}

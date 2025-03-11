@@ -15,11 +15,10 @@ import (
 )
 
 type AzureAppConfiguration struct {
-	keyValues        map[string]any
-	keyValueETags    map[Selector][]*azcore.ETag
-	kvSelectors      []Selector
-	trimPrefixes     []string
-	onRefreshSuccess func()
+	keyValues     map[string]any
+	keyValueETags map[Selector][]*azcore.ETag
+	kvSelectors   []Selector
+	trimPrefixes  []string
 
 	clientManager  *configurationClientManager
 	settingsClient settingsClient
@@ -43,7 +42,7 @@ func Load(ctx context.Context, authOptions AuthenticationOptions, cfgOptions *Op
 	azappcfg := new(AzureAppConfiguration)
 	azappcfg.keyValues = make(map[string]any)
 	azappcfg.keyValueETags = make(map[Selector][]*azcore.ETag)
-	azappcfg.kvSelectors = getValidKeyValuesSelectors(options.Selectors)
+	azappcfg.kvSelectors = deduplicateSelectors(options.Selectors)
 	azappcfg.trimPrefixes = options.TrimKeyPrefixes
 	azappcfg.clientManager = clientManager
 
@@ -52,27 +51,6 @@ func Load(ctx context.Context, authOptions AuthenticationOptions, cfgOptions *Op
 	}
 
 	return azappcfg, nil
-}
-
-func (azappcfg *AzureAppConfiguration) Refresh(ctx context.Context) error {
-	// Todo - implement refresh
-	return nil
-}
-
-func (azappcfg *AzureAppConfiguration) OnRefreshSuccess(callback func()) {
-	azappcfg.onRefreshSuccess = callback
-}
-
-func (azappcfg *AzureAppConfiguration) Unmarshal(configStruct any, options ConstructionOptions) error {
-	// Todo - implement Unmarshal
-
-	return nil
-}
-
-func (azappcfg *AzureAppConfiguration) GetBytes(options ConstructionOptions) []byte {
-	// Todo - implement GetBytes
-
-	return nil
 }
 
 func (azappcfg *AzureAppConfiguration) load(ctx context.Context) error {
@@ -95,7 +73,7 @@ func (azappcfg *AzureAppConfiguration) loadKeyValues(ctx context.Context) error 
 	if settingsClient == nil {
 		settingsClient = &selectorSettingsClient{
 			selectors: azappcfg.kvSelectors,
-			client:    azappcfg.clientManager.staticClient.Client,
+			client:    azappcfg.clientManager.staticClient.client,
 		}
 	}
 
@@ -153,19 +131,6 @@ func (azappcfg *AzureAppConfiguration) trimPrefix(key string) string {
 	}
 
 	return key
-}
-
-func getValidKeyValuesSelectors(selectors []Selector) []Selector {
-	return deduplicateSelectors(selectors)
-}
-
-func getValidFeatureFlagSelectors(selectors []Selector) []Selector {
-	s := deduplicateSelectors(selectors)
-	for _, selector := range s {
-		selector.KeyFilter = featureFlagPrefixKey + selector.KeyFilter
-	}
-
-	return s
 }
 
 func isJsonContentType(contentType *string) bool {

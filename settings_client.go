@@ -18,7 +18,7 @@ type settingsResponse struct {
 
 type selectorSettingsClient struct {
 	selectors []Selector
-	client *azappconfig.Client
+	client    *azappconfig.Client
 }
 
 type settingsClient interface {

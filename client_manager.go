@@ -5,10 +5,7 @@ package azureappconfiguration
 
 import (
 	"fmt"
-	"math"
-	"math/rand/v2"
 	"strings"
-	"time"
 
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore"
 	"github.com/Azure/azure-sdk-for-go/sdk/data/azappconfig"
@@ -26,10 +23,8 @@ type configurationClientManager struct {
 
 // configurationClientWrapper wraps an Azure App Configuration client with additional metadata
 type configurationClientWrapper struct {
-	Endpoint       string
-	Client         *azappconfig.Client
-	BackOffEndTime time.Time
-	FailedAttempts int
+	endpoint string
+	client   *azappconfig.Client
 }
 
 // newConfigurationClientManager creates a new configuration client manager
@@ -81,8 +76,8 @@ func (manager *configurationClientManager) initializeClient(authOptions Authenti
 
 	// Initialize the static client wrapper
 	manager.staticClient = &configurationClientWrapper{
-		Endpoint: manager.endpoint,
-		Client:   staticClient,
+		endpoint: manager.endpoint,
+		client:   staticClient,
 	}
 
 	return nil
@@ -90,50 +85,9 @@ func (manager *configurationClientManager) initializeClient(authOptions Authenti
 
 // getClients returns the available configuration clients
 func (manager *configurationClientManager) getClients() []*configurationClientWrapper {
+	// Currently only the static client is available
+	// This can be extended to include replica clients in the future
 	return []*configurationClientWrapper{manager.staticClient}
-}
-
-// calculateBackoffDuration calculates the exponential backoff duration with jitter
-func calculateBackoffDuration(failedAttempts int) time.Duration {
-	if failedAttempts <= 1 {
-		return minBackoffDuration
-	}
-
-	// Calculate exponential backoff with safety limits
-	minDurationMs := float64(minBackoffDuration.Milliseconds())
-	calculatedMilliseconds := math.Max(1, minDurationMs) *
-		math.Pow(2, math.Min(float64(failedAttempts-1), float64(safeShiftLimit)))
-
-	maxDurationMs := float64(maxBackoffDuration.Milliseconds())
-	if calculatedMilliseconds > maxDurationMs || calculatedMilliseconds <= 0 {
-		calculatedMilliseconds = maxDurationMs
-	}
-
-	calculatedDuration := time.Duration(calculatedMilliseconds) * time.Millisecond
-	return addJitter(calculatedDuration)
-}
-
-// addJitter adds random jitter to the duration to avoid thundering herd problem
-func addJitter(duration time.Duration) time.Duration {
-	// Calculate the amount of jitter to add to the duration
-	jitter := float64(duration) * jitterRatio
-
-	// Generate a random number between -jitter and +jitter
-	randomJitter := rand.Float64()*(2*jitter) - jitter
-
-	// Apply the random jitter to the original duration
-	return duration + time.Duration(randomJitter)
-}
-
-// updateBackoffStatus updates the client's backoff status based on success/failure
-func (clientWrapper *configurationClientWrapper) updateBackoffStatus(successful bool) {
-	if successful {
-		clientWrapper.BackOffEndTime = time.Time{}
-		clientWrapper.FailedAttempts = 0
-	} else {
-		clientWrapper.FailedAttempts++
-		clientWrapper.BackOffEndTime = time.Now().Add(calculateBackoffDuration(clientWrapper.FailedAttempts))
-	}
 }
 
 // parseConnectionString extracts a named value from a connection string

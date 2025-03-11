@@ -48,24 +48,6 @@ func verifyOptions(options *Options) error {
 		}
 	}
 
-	if options.KeyVaultOptions.RefreshOptions.Enabled {
-		if options.KeyVaultOptions.RefreshOptions.Interval > 0 &&
-			options.KeyVaultOptions.RefreshOptions.Interval < keyVaultMinimalRefreshInterval {
-			return fmt.Errorf("key vault refresh interval cannot be less than %s", keyVaultMinimalRefreshInterval)
-		}
-	}
-
-	if options.FeatureFlagOptions.Enabled {
-		if err := verifySelectors(options.FeatureFlagOptions.Selectors); err != nil {
-			return err
-		}
-
-		if options.FeatureFlagOptions.RefreshOptions.Interval > 0 &&
-			options.FeatureFlagOptions.RefreshOptions.Interval < minimalRefreshInterval {
-			return fmt.Errorf("feature flag refresh interval cannot be less than %s", minimalRefreshInterval)
-		}
-	}
-
 	return nil
 }
 
