@@ -26,7 +26,7 @@ const (
 
 // General configuration constants
 const (
-	nullLabel                         = "\x00"
+	defaultLabel                      = "\x00"
 	wildCard                          = "*"
 	defaultSeparator                  = "."
 	secretReferenceContentType string = "application/vnd.microsoft.appconfig.keyvaultref+json;charset=utf-8"

@@ -157,7 +157,7 @@ func TestDeduplicateSelectors(t *testing.T) {
 			name:  "empty input",
 			input: []Selector{},
 			expectedOutput: []Selector{
-				{KeyFilter: wildCard, LabelFilter: nullLabel},
+				{KeyFilter: wildCard, LabelFilter: defaultLabel},
 			},
 		},
 		{
@@ -190,7 +190,7 @@ func TestDeduplicateSelectors(t *testing.T) {
 				{KeyFilter: "two*", LabelFilter: "dev"},
 			},
 			expectedOutput: []Selector{
-				{KeyFilter: "one*", LabelFilter: nullLabel},
+				{KeyFilter: "one*", LabelFilter: defaultLabel},
 				{KeyFilter: "two*", LabelFilter: "dev"},
 			},
 		},

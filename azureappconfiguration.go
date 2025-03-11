@@ -148,7 +148,7 @@ func deduplicateSelectors(selectors []Selector) []Selector {
 		return []Selector{
 			{
 				KeyFilter:   wildCard,
-				LabelFilter: nullLabel,
+				LabelFilter: defaultLabel,
 			},
 		}
 	}
@@ -162,7 +162,7 @@ func deduplicateSelectors(selectors []Selector) []Selector {
 	// where later duplicates take precedence over earlier ones
 	for i := len(selectors) - 1; i >= 0; i-- {
 		if selectors[i].LabelFilter == "" {
-			selectors[i].LabelFilter = nullLabel
+			selectors[i].LabelFilter = defaultLabel
 		}
 
 		// Create a unique key for the selector
