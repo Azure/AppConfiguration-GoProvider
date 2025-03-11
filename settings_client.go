@@ -18,13 +18,14 @@ type settingsResponse struct {
 
 type selectorSettingsClient struct {
 	selectors []Selector
+	client *azappconfig.Client
 }
 
 type settingsClient interface {
-	getSettings(ctx context.Context, client *azappconfig.Client) (*settingsResponse, error)
+	getSettings(ctx context.Context) (*settingsResponse, error)
 }
 
-func (s *selectorSettingsClient) getSettings(ctx context.Context, client *azappconfig.Client) (*settingsResponse, error) {
+func (s *selectorSettingsClient) getSettings(ctx context.Context) (*settingsResponse, error) {
 	settings := make([]azappconfig.Setting, 0)
 	pageETags := make(map[Selector][]*azcore.ETag)
 
@@ -34,7 +35,7 @@ func (s *selectorSettingsClient) getSettings(ctx context.Context, client *azappc
 			LabelFilter: to.Ptr(filter.LabelFilter),
 			Fields:      azappconfig.AllSettingFields(),
 		}
-		pager := client.NewListSettingsPager(selector, nil)
+		pager := s.client.NewListSettingsPager(selector, nil)
 		latestEtags := make([]*azcore.ETag, 0)
 
 		for pager.More() {

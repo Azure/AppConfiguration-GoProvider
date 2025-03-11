@@ -14,23 +14,10 @@ import (
 	"github.com/Azure/azure-sdk-for-go/sdk/data/azappconfig"
 )
 
-// Configuration client constants
-const (
-	EndpointKey                string        = "Endpoint"
-	SecretKey                  string        = "Secret"
-	IdKey                      string        = "Id"
-	MaxBackoffDuration         time.Duration = time.Minute * 10
-	MinBackoffDuration         time.Duration = time.Second * 30
-	JitterRatio                float64       = 0.25
-	SafeShiftLimit             int           = 63
-	SecretReferenceContentType string        = "application/vnd.microsoft.appconfig.keyvaultref+json;charset=utf-8"
-	FeatureFlagContentType     string        = "application/vnd.microsoft.appconfig.ff+json;charset=utf-8"
-)
-
 // configurationClientManager handles creation and management of app configuration clients
 type configurationClientManager struct {
 	clientOptions *azappconfig.ClientOptions
-	staticClient *configurationClientWrapper
+	staticClient  *configurationClientWrapper
 	endpoint      string
 	credential    azcore.TokenCredential
 	secret        string
@@ -68,15 +55,15 @@ func (manager *configurationClientManager) initializeClient(authOptions Authenti
 		// Initialize using connection string
 		connectionString := authOptions.ConnectionString
 
-		if manager.endpoint, err = parseConnectionString(connectionString, EndpointKey); err != nil {
+		if manager.endpoint, err = parseConnectionString(connectionString, endpointKey); err != nil {
 			return err
 		}
 
-		if manager.secret, err = parseConnectionString(connectionString, SecretKey); err != nil {
+		if manager.secret, err = parseConnectionString(connectionString, secretKey); err != nil {
 			return err
 		}
 
-		if manager.id, err = parseConnectionString(connectionString, IdKey); err != nil {
+		if manager.id, err = parseConnectionString(connectionString, idKey); err != nil {
 			return err
 		}
 
@@ -109,15 +96,15 @@ func (manager *configurationClientManager) getClients() []*configurationClientWr
 // calculateBackoffDuration calculates the exponential backoff duration with jitter
 func calculateBackoffDuration(failedAttempts int) time.Duration {
 	if failedAttempts <= 1 {
-		return MinBackoffDuration
+		return minBackoffDuration
 	}
 
 	// Calculate exponential backoff with safety limits
-	minDurationMs := float64(MinBackoffDuration.Milliseconds())
+	minDurationMs := float64(minBackoffDuration.Milliseconds())
 	calculatedMilliseconds := math.Max(1, minDurationMs) *
-		math.Pow(2, math.Min(float64(failedAttempts-1), float64(SafeShiftLimit)))
+		math.Pow(2, math.Min(float64(failedAttempts-1), float64(safeShiftLimit)))
 
-	maxDurationMs := float64(MaxBackoffDuration.Milliseconds())
+	maxDurationMs := float64(maxBackoffDuration.Milliseconds())
 	if calculatedMilliseconds > maxDurationMs || calculatedMilliseconds <= 0 {
 		calculatedMilliseconds = maxDurationMs
 	}
@@ -129,7 +116,7 @@ func calculateBackoffDuration(failedAttempts int) time.Duration {
 // addJitter adds random jitter to the duration to avoid thundering herd problem
 func addJitter(duration time.Duration) time.Duration {
 	// Calculate the amount of jitter to add to the duration
-	jitter := float64(duration) * JitterRatio
+	jitter := float64(duration) * jitterRatio
 
 	// Generate a random number between -jitter and +jitter
 	randomJitter := rand.Float64()*(2*jitter) - jitter

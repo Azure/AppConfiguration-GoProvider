@@ -8,8 +8,6 @@ import (
 	"strings"
 )
 
-
-
 func verifyAuthenticationOptions(authOptions AuthenticationOptions) error {
 	if authOptions.ConnectionString == "" &&
 		!(authOptions.Endpoint != "" && authOptions.Credential != nil) {
@@ -29,9 +27,9 @@ func verifyOptions(options *Options) error {
 	}
 
 	if options.RefreshOptions.Enabled {
-		if options.RefreshOptions.Interval > 0 && 
-			options.RefreshOptions.Interval < MinimalRefreshInterval {
-			return fmt.Errorf("key value refresh interval cannot be less than %s", MinimalRefreshInterval)
+		if options.RefreshOptions.Interval > 0 &&
+			options.RefreshOptions.Interval < minimalRefreshInterval {
+			return fmt.Errorf("key value refresh interval cannot be less than %s", minimalRefreshInterval)
 		}
 
 		for _, watchedSetting := range options.RefreshOptions.WatchedSettings {
@@ -43,7 +41,7 @@ func verifyOptions(options *Options) error {
 				return fmt.Errorf("watched setting key cannot contain '*' or ','")
 			}
 
-			if watchedSetting.Label != "" && 
+			if watchedSetting.Label != "" &&
 				(strings.Contains(watchedSetting.Label, "*") || strings.Contains(watchedSetting.Label, ",")) {
 				return fmt.Errorf("watched setting label cannot contain '*' or ','")
 			}
@@ -51,9 +49,9 @@ func verifyOptions(options *Options) error {
 	}
 
 	if options.KeyVaultOptions.RefreshOptions.Enabled {
-		if options.KeyVaultOptions.RefreshOptions.Interval > 0 && 
-			options.KeyVaultOptions.RefreshOptions.Interval < KeyVaultMinimalRefreshInterval {
-			return fmt.Errorf("key vault refresh interval cannot be less than %s", KeyVaultMinimalRefreshInterval)
+		if options.KeyVaultOptions.RefreshOptions.Interval > 0 &&
+			options.KeyVaultOptions.RefreshOptions.Interval < keyVaultMinimalRefreshInterval {
+			return fmt.Errorf("key vault refresh interval cannot be less than %s", keyVaultMinimalRefreshInterval)
 		}
 	}
 
@@ -62,9 +60,9 @@ func verifyOptions(options *Options) error {
 			return err
 		}
 
-		if options.FeatureFlagOptions.RefreshOptions.Interval > 0 && 
-			options.FeatureFlagOptions.RefreshOptions.Interval < MinimalRefreshInterval {
-			return fmt.Errorf("feature flag refresh interval cannot be less than %s", MinimalRefreshInterval)
+		if options.FeatureFlagOptions.RefreshOptions.Interval > 0 &&
+			options.FeatureFlagOptions.RefreshOptions.Interval < minimalRefreshInterval {
+			return fmt.Errorf("feature flag refresh interval cannot be less than %s", minimalRefreshInterval)
 		}
 	}
 
@@ -103,7 +101,7 @@ func reverse(arr []Selector) {
 
 func verifySeparator(separator string) error {
 	if separator == "" {
-		separator = DefaultSeparator
+		separator = defaultSeparator
 	}
 
 	validSeparators := []string{".", ",", ";", "-", "_", "__", "/", ":"}

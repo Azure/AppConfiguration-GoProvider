@@ -6,11 +6,7 @@ package azureappconfiguration
 import (
 	"context"
 	"encoding/json"
-	"errors"
-	"fmt"
 	"log"
-	"net"
-	"net/http"
 	"regexp"
 	"strings"
 
@@ -26,7 +22,7 @@ type AzureAppConfiguration struct {
 	onRefreshSuccess func()
 
 	clientManager  *configurationClientManager
-	settingsClient // used for testing
+	settingsClient settingsClient
 }
 
 func Load(ctx context.Context, authOptions AuthenticationOptions, cfgOptions *Options) (*AzureAppConfiguration, error) {
@@ -99,10 +95,11 @@ func (azappcfg *AzureAppConfiguration) loadKeyValues(ctx context.Context) error 
 	if settingsClient == nil {
 		settingsClient = &selectorSettingsClient{
 			selectors: azappcfg.kvSelectors,
+			client:    azappcfg.clientManager.staticClient.Client,
 		}
 	}
 
-	settingsResponse, err := azappcfg.executeFailoverPolicy(ctx, settingsClient)
+	settingsResponse, err := settingsClient.getSettings(ctx)
 	if err != nil {
 		return err
 	}
@@ -124,12 +121,11 @@ func (azappcfg *AzureAppConfiguration) loadKeyValues(ctx context.Context) error 
 		}
 
 		switch *setting.ContentType {
-		case FeatureFlagContentType:
+		case featureFlagContentType:
 			continue // ignore feature flag while getting key value settings
-		case SecretReferenceContentType:
+		case secretReferenceContentType:
 			continue // Todo - implement secret reference
 		default:
-			kvSettings[trimmedKey] = *setting.Value
 			if isJsonContentType(setting.ContentType) {
 				var v any
 				if err := json.Unmarshal([]byte(*setting.Value), &v); err != nil {
@@ -137,6 +133,8 @@ func (azappcfg *AzureAppConfiguration) loadKeyValues(ctx context.Context) error 
 					continue
 				}
 				kvSettings[trimmedKey] = v
+			} else {
+				kvSettings[trimmedKey] = setting.Value
 			}
 		}
 	}
@@ -145,24 +143,6 @@ func (azappcfg *AzureAppConfiguration) loadKeyValues(ctx context.Context) error 
 	azappcfg.keyValues = kvSettings
 
 	return nil
-}
-
-func (azappcfg *AzureAppConfiguration) executeFailoverPolicy(ctx context.Context, settingsClient settingsClient) (*settingsResponse, error) {
-	for _, clientWrapper := range azappcfg.clientManager.getClients() {
-		settingsResponse, err := settingsClient.getSettings(ctx, clientWrapper.Client)
-		if err != nil {
-			clientWrapper.updateBackoffStatus(false)
-			if isFailoverable(err) {
-				continue
-			}
-			return nil, err
-		}
-
-		clientWrapper.updateBackoffStatus(true)
-		return settingsResponse, nil
-	}
-
-	return nil, fmt.Errorf("all app configuration clients failed to get settings.")
 }
 
 func (azappcfg *AzureAppConfiguration) trimPrefix(key string) string {
@@ -182,7 +162,7 @@ func getValidKeyValuesSelectors(selectors []Selector) []Selector {
 func getValidFeatureFlagSelectors(selectors []Selector) []Selector {
 	s := deduplicateSelectors(selectors)
 	for _, selector := range s {
-		selector.KeyFilter = FeatureFlagPrefixKey + selector.KeyFilter
+		selector.KeyFilter = featureFlagPrefixKey + selector.KeyFilter
 	}
 
 	return s
@@ -197,29 +177,13 @@ func isJsonContentType(contentType *string) bool {
 	return matched
 }
 
-func isFailoverable(err error) bool {
-	if err == nil {
-		return false
-	}
-
-	if _, ok := err.(net.Error); ok {
-		return true
-	}
-
-	var respErr *azcore.ResponseError
-	return errors.As(err, &respErr) &&
-		(respErr.StatusCode == http.StatusTooManyRequests ||
-			respErr.StatusCode == http.StatusRequestTimeout ||
-			respErr.StatusCode >= http.StatusInternalServerError)
-}
-
 func deduplicateSelectors(selectors []Selector) []Selector {
 	// If no selectors provided, return the default selector
 	if len(selectors) == 0 {
 		return []Selector{
 			{
-				KeyFilter:   WildCard,
-				LabelFilter: NullLabel,
+				KeyFilter:   wildCard,
+				LabelFilter: nullLabel,
 			},
 		}
 	}
@@ -233,7 +197,7 @@ func deduplicateSelectors(selectors []Selector) []Selector {
 	// where later duplicates take precedence over earlier ones
 	for i := len(selectors) - 1; i >= 0; i-- {
 		if selectors[i].LabelFilter == "" {
-			selectors[i].LabelFilter = NullLabel
+			selectors[i].LabelFilter = nullLabel
 		}
 
 		// Create a unique key for the selector

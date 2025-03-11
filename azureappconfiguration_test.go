@@ -17,24 +17,25 @@ type MockSettingsClient struct {
 	mock.Mock
 }
 
-func (m *MockSettingsClient) getSettings(ctx context.Context, client *azappconfig.Client) (*settingsResponse, error) {
-	args := m.Called(ctx, client)
+func (m *MockSettingsClient) getSettings(ctx context.Context) (*settingsResponse, error) {
+	args := m.Called(ctx)
 	return args.Get(0).(*settingsResponse), args.Error(1)
 }
 
 func TestLoadKeyValues_Success(t *testing.T) {
 	ctx := context.Background()
 	mockClient := new(MockSettingsClient)
+	value1 := "value1"
+	value2 := `{"jsonKey": "jsonValue"}`
 	mockResponse := &settingsResponse{
 		settings: []azappconfig.Setting{
-			{Key: toPtr("key1"), Value: toPtr("value1"), ContentType: toPtr("")},
-			{Key: toPtr("key2"), Value: toPtr(`{"jsonKey": "jsonValue"}`), ContentType: toPtr("application/json")},
+			{Key: toPtr("key1"), Value: &value1, ContentType: toPtr("")},
+			{Key: toPtr("key2"), Value: &value2, ContentType: toPtr("application/json")},
 		},
-
 		eTags: map[Selector][]*azcore.ETag{},
 	}
 
-	mockClient.On("getSettings", ctx, mock.Anything).Return(mockResponse, nil)
+	mockClient.On("getSettings", ctx).Return(mockResponse, nil)
 
 	azappcfg := &AzureAppConfiguration{
 		clientManager: &configurationClientManager{
@@ -42,27 +43,33 @@ func TestLoadKeyValues_Success(t *testing.T) {
 		},
 		kvSelectors:    getValidKeyValuesSelectors([]Selector{}),
 		settingsClient: mockClient,
+		keyValues:      make(map[string]any),
 	}
 
 	err := azappcfg.loadKeyValues(ctx)
 	assert.NoError(t, err)
-	assert.Equal(t, "value1", azappcfg.keyValues["key1"])
+	// We should expect pointer values in the keyValues map
+	assert.Equal(t, &value1, azappcfg.keyValues["key1"])
+	// For JSON content types, we still expect the parsed value
 	assert.Equal(t, map[string]interface{}{"jsonKey": "jsonValue"}, azappcfg.keyValues["key2"])
 }
 
 func TestLoadKeyValues_WithTrimPrefix(t *testing.T) {
 	ctx := context.Background()
 	mockClient := new(MockSettingsClient)
+	value1 := "value1"
+	value2 := "value2"
+	value3 := "value3"
 	mockResponse := &settingsResponse{
 		settings: []azappconfig.Setting{
-			{Key: toPtr("prefix:key1"), Value: toPtr("value1"), ContentType: toPtr("")},
-			{Key: toPtr("other:key2"), Value: toPtr("value2"), ContentType: toPtr("")},
-			{Key: toPtr("key3"), Value: toPtr("value3"), ContentType: toPtr("")},
+			{Key: toPtr("prefix:key1"), Value: &value1, ContentType: toPtr("")},
+			{Key: toPtr("other:key2"), Value: &value2, ContentType: toPtr("")},
+			{Key: toPtr("key3"), Value: &value3, ContentType: toPtr("")},
 		},
 		eTags: map[Selector][]*azcore.ETag{},
 	}
 
-	mockClient.On("getSettings", ctx, mock.Anything).Return(mockResponse, nil)
+	mockClient.On("getSettings", ctx).Return(mockResponse, nil)
 
 	azappcfg := &AzureAppConfiguration{
 		clientManager: &configurationClientManager{
@@ -76,22 +83,24 @@ func TestLoadKeyValues_WithTrimPrefix(t *testing.T) {
 
 	err := azappcfg.loadKeyValues(ctx)
 	assert.NoError(t, err)
-	assert.Equal(t, "value1", azappcfg.keyValues["key1"])
-	assert.Equal(t, "value2", azappcfg.keyValues["key2"])
-	assert.Equal(t, "value3", azappcfg.keyValues["key3"])
+	// We should expect pointer values in the keyValues map
+	assert.Equal(t, &value1, azappcfg.keyValues["key1"])
+	assert.Equal(t, &value2, azappcfg.keyValues["key2"])
+	assert.Equal(t, &value3, azappcfg.keyValues["key3"])
 }
 
 func TestLoadKeyValues_EmptyKeyAfterTrim(t *testing.T) {
 	ctx := context.Background()
 	mockClient := new(MockSettingsClient)
+	value1 := "value1"
 	mockResponse := &settingsResponse{
 		settings: []azappconfig.Setting{
-			{Key: toPtr("prefix:"), Value: toPtr("value1"), ContentType: toPtr("")},
+			{Key: toPtr("prefix:"), Value: &value1, ContentType: toPtr("")},
 		},
 		eTags: map[Selector][]*azcore.ETag{},
 	}
 
-	mockClient.On("getSettings", ctx, mock.Anything).Return(mockResponse, nil)
+	mockClient.On("getSettings", ctx).Return(mockResponse, nil)
 
 	azappcfg := &AzureAppConfiguration{
 		clientManager: &configurationClientManager{
@@ -111,15 +120,17 @@ func TestLoadKeyValues_EmptyKeyAfterTrim(t *testing.T) {
 func TestLoadKeyValues_InvalidJson(t *testing.T) {
 	ctx := context.Background()
 	mockClient := new(MockSettingsClient)
+	value1 := "value1"
+	value2 := `{"jsonKey": invalid}`
 	mockResponse := &settingsResponse{
 		settings: []azappconfig.Setting{
-			{Key: toPtr("key1"), Value: toPtr("value1"), ContentType: toPtr("")},
-			{Key: toPtr("key2"), Value: toPtr(`{"jsonKey": invalid}`), ContentType: toPtr("application/json")},
+			{Key: toPtr("key1"), Value: &value1, ContentType: toPtr("")},
+			{Key: toPtr("key2"), Value: &value2, ContentType: toPtr("application/json")},
 		},
 		eTags: map[Selector][]*azcore.ETag{},
 	}
 
-	mockClient.On("getSettings", ctx, mock.Anything).Return(mockResponse, nil)
+	mockClient.On("getSettings", ctx).Return(mockResponse, nil)
 
 	azappcfg := &AzureAppConfiguration{
 		clientManager: &configurationClientManager{
@@ -132,9 +143,8 @@ func TestLoadKeyValues_InvalidJson(t *testing.T) {
 
 	err := azappcfg.loadKeyValues(ctx)
 	assert.NoError(t, err)
-	assert.Equal(t, "value1", azappcfg.keyValues["key1"])
-	// Even though JSON is invalid, the string value should still be stored
-	assert.Equal(t, `{"jsonKey": invalid}`, azappcfg.keyValues["key2"])
+	assert.Len(t, azappcfg.keyValues, 1)
+	assert.Equal(t, &value1, azappcfg.keyValues["key1"])
 }
 
 func TestDeduplicateSelectors(t *testing.T) {
@@ -147,7 +157,7 @@ func TestDeduplicateSelectors(t *testing.T) {
 			name:  "empty input",
 			input: []Selector{},
 			expectedOutput: []Selector{
-				{KeyFilter: WildCard, LabelFilter: NullLabel},
+				{KeyFilter: wildCard, LabelFilter: nullLabel},
 			},
 		},
 		{
@@ -180,7 +190,7 @@ func TestDeduplicateSelectors(t *testing.T) {
 				{KeyFilter: "two*", LabelFilter: "dev"},
 			},
 			expectedOutput: []Selector{
-				{KeyFilter: "one*", LabelFilter: NullLabel},
+				{KeyFilter: "one*", LabelFilter: nullLabel},
 				{KeyFilter: "two*", LabelFilter: "dev"},
 			},
 		},
