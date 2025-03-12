@@ -107,13 +107,6 @@ func (cfg *AzureAppConfiguration) loadSettings(ctx context.Context) error {
 		}
 	}
 
-	// Resolve Key Vault references if needed
-	if cfg.keyVaultOptions != nil {
-		if err := cfg.resolveKeyVaultReferences(ctx); err != nil {
-			return fmt.Errorf("failed to resolve Key Vault references: %w", err)
-		}
-	}
-
 	// Update last sync time
 	cfg.lastSyncTime = time.Now()
 
@@ -165,10 +158,65 @@ func (cfg *AzureAppConfiguration) loadSettingsWithSelector(ctx context.Context, 
 
 			// Store the setting
 			cfg.settings[key] = setting
+
+			// Check if this is a Key Vault reference by content type
+			isKeyVaultRef := setting.ContentType != nil && *setting.ContentType == KeyVaultContentType
+
+			// Also check by value prefix as a fallback
+			// if !isKeyVaultRef && setting.Value != nil && isKeyVaultReference(*setting.Value) {
+			// 	isKeyVaultRef = true
+			// }
+
+			// Resolve Key Vault references immediately if needed
+			if isKeyVaultRef && cfg.keyVaultOptions != nil && setting.Value != nil {
+				uri, err := parseKeyVaultReference(*setting.Value)
+				if err != nil {
+					return fmt.Errorf("failed to parse Key Vault reference for key %s: %w", key, err)
+				}
+				secret, err := cfg.getKeyVaultSecret(ctx, uri)
+				if err != nil {
+					return fmt.Errorf("failed to retrieve Key Vault secret for key %s: %w", key, err)
+				}
+				// Update the setting with the resolved secret
+				settingCopy := setting
+				settingCopy.Value = &secret
+				cfg.settings[key] = settingCopy
+			}
 		}
 	}
 
 	return nil
+}
+
+// getKeyVaultSecret retrieves a secret from Key Vault using the provided URI
+func (cfg *AzureAppConfiguration) getKeyVaultSecret(ctx context.Context, uri string) (string, error) {
+	// Skip if KeyVaultOptions is not configured
+	if cfg.keyVaultOptions == nil {
+		return "", errors.New("Key Vault options not configured")
+	}
+
+	// Check if this reference is already cached
+	cfg.keyVaultCacheMu.RLock()
+	cachedSecret, found := cfg.keyVaultCache[uri]
+	cfg.keyVaultCacheMu.RUnlock()
+
+	if found {
+		// Use the cached value
+		return cachedSecret, nil
+	}
+
+	// Resolve the secret using the appropriate method
+	resolvedSecret, err := cfg.resolveSecret(ctx, uri)
+	if err != nil {
+		return "", err
+	}
+
+	// Cache the resolved secret
+	cfg.keyVaultCacheMu.Lock()
+	cfg.keyVaultCache[uri] = resolvedSecret
+	cfg.keyVaultCacheMu.Unlock()
+
+	return resolvedSecret, nil
 }
 
 // trimKeyPrefixes removes configured prefixes from the key.
@@ -328,11 +376,6 @@ func getSeparator(options *ConstructOptions) string {
 
 	// Invalid separator, use default
 	return DefaultSeparator
-}
-
-// isKeyVaultReference checks if a setting value is a Key Vault reference.
-func isKeyVaultReference(value string) bool {
-	return strings.HasPrefix(value, KeyVaultReferencePrefix)
 }
 
 // parseKeyVaultReference extracts the URI from a Key Vault reference.

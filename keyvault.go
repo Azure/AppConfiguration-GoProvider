@@ -10,61 +10,8 @@ import (
 	"github.com/Azure/azure-sdk-for-go/sdk/security/keyvault/azsecrets"
 )
 
-// resolveKeyVaultReferences resolves Key Vault references in settings.
-func (cfg *AzureAppConfiguration) resolveKeyVaultReferences(ctx context.Context) error {
-	// Skip if KeyVaultOptions is not configured
-	if cfg.keyVaultOptions == nil {
-		return nil
-	}
-
-	// Process each setting to check for Key Vault references
-	for key, setting := range cfg.settings {
-		// Skip if setting has no value or is not a string
-		if setting.Value == nil {
-			continue
-		}
-
-		value := *setting.Value
-		if !isKeyVaultReference(value) {
-			continue
-		}
-
-		// Parse the Key Vault reference to get the URI
-		uri, err := parseKeyVaultReference(value)
-		if err != nil {
-			return fmt.Errorf("failed to parse Key Vault reference for key %s: %w", key, err)
-		}
-
-		// Check if this reference is already cached
-		cfg.keyVaultCacheMu.RLock()
-		cachedSecret, found := cfg.keyVaultCache[uri]
-		cfg.keyVaultCacheMu.RUnlock()
-
-		if found {
-			// Use the cached value
-			setting.Value = &cachedSecret
-			cfg.settings[key] = setting
-			continue
-		}
-
-		// Resolve the secret using the appropriate method
-		resolvedSecret, err := cfg.resolveSecret(ctx, uri)
-		if err != nil {
-			return fmt.Errorf("failed to resolve Key Vault reference for key %s: %w", key, err)
-		}
-
-		// Cache the resolved secret
-		cfg.keyVaultCacheMu.Lock()
-		cfg.keyVaultCache[uri] = resolvedSecret
-		cfg.keyVaultCacheMu.Unlock()
-
-		// Update the setting with the resolved secret
-		setting.Value = &resolvedSecret
-		cfg.settings[key] = setting
-	}
-
-	return nil
-}
+// KeyVaultContentType is the content type used to identify Key Vault references
+const KeyVaultContentType = "application/vnd.microsoft.appconfig.keyvaultref+json;charset=utf-8"
 
 // resolveSecret resolves a secret using the configured resolver or by connecting to Key Vault.
 func (cfg *AzureAppConfiguration) resolveSecret(ctx context.Context, uri string) (string, error) {
