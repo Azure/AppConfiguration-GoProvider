@@ -20,21 +20,19 @@ type AzureAppConfiguration struct {
 	kvSelectors   []Selector
 	trimPrefixes  []string
 
-	clientManager  *configurationClientManager
-	settingsClient settingsClient
+	clientManager *configurationClientManager
 }
 
-func Load(ctx context.Context, authOptions AuthenticationOptions, cfgOptions *Options) (*AzureAppConfiguration, error) {
-	if err := verifyAuthenticationOptions(authOptions); err != nil {
+func Load(ctx context.Context, authentication AuthenticationOptions, options *Options) (*AzureAppConfiguration, error) {
+	if err := verifyAuthenticationOptions(authentication); err != nil {
 		return nil, err
 	}
 
-	options := cfgOptions
 	if options == nil {
 		options = &Options{}
 	}
 
-	clientManager, err := newConfigurationClientManager(authOptions, options.ClientOptions)
+	clientManager, err := newConfigurationClientManager(authentication, options.ClientOptions)
 	if err != nil {
 		return nil, err
 	}
@@ -54,29 +52,20 @@ func Load(ctx context.Context, authOptions AuthenticationOptions, cfgOptions *Op
 }
 
 func (azappcfg *AzureAppConfiguration) load(ctx context.Context) error {
-	type loadTask func(_ context.Context) error
-	eg, egCtx := errgroup.WithContext(ctx)
-	for _, task := range []loadTask{
-		azappcfg.loadKeyValues,
-	} {
-		task := task
-		eg.Go(func() error {
-			return task(egCtx)
-		})
+	keyValuesClient := &selectorSettingsClient{
+		selectors: azappcfg.kvSelectors,
+		client:    azappcfg.clientManager.staticClient.client,
 	}
+
+	eg, egCtx := errgroup.WithContext(ctx)
+	eg.Go(func() error {
+		return azappcfg.loadKeyValues(egCtx, keyValuesClient)
+	})
 
 	return eg.Wait()
 }
 
-func (azappcfg *AzureAppConfiguration) loadKeyValues(ctx context.Context) error {
-	settingsClient := azappcfg.settingsClient
-	if settingsClient == nil {
-		settingsClient = &selectorSettingsClient{
-			selectors: azappcfg.kvSelectors,
-			client:    azappcfg.clientManager.staticClient.client,
-		}
-	}
-
+func (azappcfg *AzureAppConfiguration) loadKeyValues(ctx context.Context, settingsClient settingsClient) error {
 	settingsResponse, err := settingsClient.getSettings(ctx)
 	if err != nil {
 		return err
@@ -124,13 +113,15 @@ func (azappcfg *AzureAppConfiguration) loadKeyValues(ctx context.Context) error 
 }
 
 func (azappcfg *AzureAppConfiguration) trimPrefix(key string) string {
-	for _, v := range azappcfg.trimPrefixes {
-		if strings.HasPrefix(key, v) {
-			return strings.TrimPrefix(key, v)
+	result := key
+	for _, prefix := range azappcfg.trimPrefixes {
+		if strings.HasPrefix(result, prefix) {
+			result = result[len(prefix):]
+			break
 		}
 	}
 
-	return key
+	return result
 }
 
 func isJsonContentType(contentType *string) bool {
@@ -154,21 +145,20 @@ func deduplicateSelectors(selectors []Selector) []Selector {
 	}
 
 	// Create a map to track unique selectors
-	// Use string key combining KeyFilter and LabelFilter to identify unique selectors
-	seen := make(map[string]struct{})
+	seen := make(map[Selector]struct{})
 	var result []Selector
 
 	// Process the selectors in reverse order to maintain the behavior
 	// where later duplicates take precedence over earlier ones
 	for i := len(selectors) - 1; i >= 0; i-- {
+		// Normalize empty label filter
 		if selectors[i].LabelFilter == "" {
 			selectors[i].LabelFilter = defaultLabel
 		}
 
-		// Create a unique key for the selector
-		key := selectors[i].KeyFilter + ":" + selectors[i].LabelFilter
-		if _, exists := seen[key]; !exists {
-			seen[key] = struct{}{}
+		// Check if we've seen this selector before
+		if _, exists := seen[selectors[i]]; !exists {
+			seen[selectors[i]] = struct{}{}
 			result = append(result, selectors[i])
 		}
 	}

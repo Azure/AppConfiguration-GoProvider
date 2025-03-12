@@ -7,7 +7,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Azure/azure-sdk-for-go/sdk/azcore/to"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -147,59 +146,6 @@ func TestVerifySelectors(t *testing.T) {
 			} else {
 				assert.NoError(t, err)
 			}
-		})
-	}
-}
-
-func TestCompare(t *testing.T) {
-	tests := []struct {
-		name     string
-		a        *string
-		b        *string
-		expected bool
-	}{
-		{
-			name:     "both nil",
-			a:        nil,
-			b:        nil,
-			expected: true,
-		},
-		{
-			name:     "first nil",
-			a:        nil,
-			b:        to.Ptr("test"),
-			expected: false,
-		},
-		{
-			name:     "second nil",
-			a:        to.Ptr("test"),
-			b:        nil,
-			expected: false,
-		},
-		{
-			name:     "same content",
-			a:        to.Ptr("test"),
-			b:        to.Ptr("test"),
-			expected: true,
-		},
-		{
-			name:     "different content",
-			a:        to.Ptr("test1"),
-			b:        to.Ptr("test2"),
-			expected: false,
-		},
-		{
-			name:     "same pointer",
-			a:        func() *string { s := "test"; return &s }(),
-			b:        func() *string { s := "test"; return &s }(),
-			expected: true,
-		},
-	}
-
-	for _, test := range tests {
-		t.Run(test.name, func(t *testing.T) {
-			result := compare(test.a, test.b)
-			assert.Equal(t, test.expected, result)
 		})
 	}
 }

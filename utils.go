@@ -65,16 +65,6 @@ func verifySelectors(selectors []Selector) error {
 	return nil
 }
 
-func compare(a *string, b *string) bool {
-	if a == b {
-		return true
-	}
-	if a == nil || b == nil {
-		return false
-	}
-	return strings.Compare(*a, *b) == 0
-}
-
 func reverse(arr []Selector) {
 	for i, j := 0, len(arr)-1; i < j; i, j = i+1, j-1 {
 		arr[i], arr[j] = arr[j], arr[i]
@@ -97,7 +87,7 @@ func verifySeparator(separator string) error {
 	}
 
 	if !isValid {
-		return fmt.Errorf("invalid separator '%s'. Supported values: %s.", separator, strings.Join(validSeparators, ", "))
+		return fmt.Errorf("invalid separator '%s'. Supported values: %s", separator, strings.Join(validSeparators, ", "))
 	}
 	return nil
 }

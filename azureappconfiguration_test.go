@@ -13,18 +13,18 @@ import (
 	"github.com/stretchr/testify/mock"
 )
 
-type MockSettingsClient struct {
+type mockSettingsClient struct {
 	mock.Mock
 }
 
-func (m *MockSettingsClient) getSettings(ctx context.Context) (*settingsResponse, error) {
+func (m *mockSettingsClient) getSettings(ctx context.Context) (*settingsResponse, error) {
 	args := m.Called(ctx)
 	return args.Get(0).(*settingsResponse), args.Error(1)
 }
 
 func TestLoadKeyValues_Success(t *testing.T) {
 	ctx := context.Background()
-	mockClient := new(MockSettingsClient)
+	mockClient := new(mockSettingsClient)
 	value1 := "value1"
 	value2 := `{"jsonKey": "jsonValue"}`
 	mockResponse := &settingsResponse{
@@ -42,11 +42,10 @@ func TestLoadKeyValues_Success(t *testing.T) {
 			staticClient: &configurationClientWrapper{client: &azappconfig.Client{}},
 		},
 		kvSelectors:    deduplicateSelectors([]Selector{}),
-		settingsClient: mockClient,
 		keyValues:      make(map[string]any),
 	}
 
-	err := azappcfg.loadKeyValues(ctx)
+	err := azappcfg.loadKeyValues(ctx, mockClient)
 	assert.NoError(t, err)
 	// We should expect pointer values in the keyValues map
 	assert.Equal(t, &value1, azappcfg.keyValues["key1"])
@@ -56,7 +55,7 @@ func TestLoadKeyValues_Success(t *testing.T) {
 
 func TestLoadKeyValues_WithTrimPrefix(t *testing.T) {
 	ctx := context.Background()
-	mockClient := new(MockSettingsClient)
+	mockClient := new(mockSettingsClient)
 	value1 := "value1"
 	value2 := "value2"
 	value3 := "value3"
@@ -77,11 +76,10 @@ func TestLoadKeyValues_WithTrimPrefix(t *testing.T) {
 		},
 		kvSelectors:    deduplicateSelectors([]Selector{}),
 		trimPrefixes:   []string{"prefix:", "other:"},
-		settingsClient: mockClient,
 		keyValues:      make(map[string]any),
 	}
 
-	err := azappcfg.loadKeyValues(ctx)
+	err := azappcfg.loadKeyValues(ctx, mockClient)
 	assert.NoError(t, err)
 	// We should expect pointer values in the keyValues map
 	assert.Equal(t, &value1, azappcfg.keyValues["key1"])
@@ -91,7 +89,7 @@ func TestLoadKeyValues_WithTrimPrefix(t *testing.T) {
 
 func TestLoadKeyValues_EmptyKeyAfterTrim(t *testing.T) {
 	ctx := context.Background()
-	mockClient := new(MockSettingsClient)
+	mockClient := new(mockSettingsClient)
 	value1 := "value1"
 	mockResponse := &settingsResponse{
 		settings: []azappconfig.Setting{
@@ -108,18 +106,17 @@ func TestLoadKeyValues_EmptyKeyAfterTrim(t *testing.T) {
 		},
 		kvSelectors:    deduplicateSelectors([]Selector{}),
 		trimPrefixes:   []string{"prefix:"},
-		settingsClient: mockClient,
 		keyValues:      make(map[string]any),
 	}
 
-	err := azappcfg.loadKeyValues(ctx)
+	err := azappcfg.loadKeyValues(ctx, mockClient)
 	assert.NoError(t, err)
 	assert.Empty(t, azappcfg.keyValues)
 }
 
 func TestLoadKeyValues_InvalidJson(t *testing.T) {
 	ctx := context.Background()
-	mockClient := new(MockSettingsClient)
+	mockClient := new(mockSettingsClient)
 	value1 := "value1"
 	value2 := `{"jsonKey": invalid}`
 	mockResponse := &settingsResponse{
@@ -137,11 +134,10 @@ func TestLoadKeyValues_InvalidJson(t *testing.T) {
 			staticClient: &configurationClientWrapper{client: &azappconfig.Client{}},
 		},
 		kvSelectors:    deduplicateSelectors([]Selector{}),
-		settingsClient: mockClient,
 		keyValues:      make(map[string]any),
 	}
 
-	err := azappcfg.loadKeyValues(ctx)
+	err := azappcfg.loadKeyValues(ctx, mockClient)
 	assert.NoError(t, err)
 	assert.Len(t, azappcfg.keyValues, 1)
 	assert.Equal(t, &value1, azappcfg.keyValues["key1"])
@@ -192,6 +188,32 @@ func TestDeduplicateSelectors(t *testing.T) {
 			expectedOutput: []Selector{
 				{KeyFilter: "one*", LabelFilter: defaultLabel},
 				{KeyFilter: "two*", LabelFilter: "dev"},
+			},
+		},
+		{
+			name: "duplicates after normalization",
+			input: []Selector{
+				{KeyFilter: "one*", LabelFilter: ""},
+				{KeyFilter: "two*", LabelFilter: "dev"},
+				{KeyFilter: "one*", LabelFilter: defaultLabel},
+			},
+			expectedOutput: []Selector{
+				{KeyFilter: "two*", LabelFilter: "dev"},
+				{KeyFilter: "one*", LabelFilter: defaultLabel},
+			},
+		},
+		{
+			name: "precedence - later duplicates override earlier ones",
+			input: []Selector{
+				{KeyFilter: "one*", LabelFilter: "prod"},
+				{KeyFilter: "two*", LabelFilter: "dev"},
+				{KeyFilter: "one*", LabelFilter: "prod"},
+				{KeyFilter: "three*", LabelFilter: "test"},
+			},
+			expectedOutput: []Selector{
+				{KeyFilter: "two*", LabelFilter: "dev"},
+				{KeyFilter: "one*", LabelFilter: "prod"},
+				{KeyFilter: "three*", LabelFilter: "test"},
 			},
 		},
 	}
@@ -252,6 +274,24 @@ func TestTrimPrefix(t *testing.T) {
 			key:            "appSettings:",
 			prefixesToTrim: []string{"appSettings:"},
 			expected:       "",
+		},
+		{
+			name:           "multiple matching prefixes - only first match is trimmed",
+			key:            "config:appSettings:theme",
+			prefixesToTrim: []string{"config:", "appSettings:"},
+			expected:       "appSettings:theme",
+		},
+		{
+			name:           "nested prefixes - longer prefix should be prioritized",
+			key:            "prefix:subprefix:value",
+			prefixesToTrim: []string{"prefix:", "prefix:subprefix:"},
+			expected:       "subprefix:value",
+		},
+		{
+			name:           "nested prefixes in reverse order - first match is used",
+			key:            "prefix:subprefix:value",
+			prefixesToTrim: []string{"prefix:subprefix:", "prefix:"},
+			expected:       "value",
 		},
 	}
 
