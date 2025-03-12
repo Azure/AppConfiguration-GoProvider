@@ -41,15 +41,13 @@ func TestLoadKeyValues_Success(t *testing.T) {
 		clientManager: &configurationClientManager{
 			staticClient: &configurationClientWrapper{client: &azappconfig.Client{}},
 		},
-		kvSelectors:    deduplicateSelectors([]Selector{}),
-		keyValues:      make(map[string]any),
+		kvSelectors: deduplicateSelectors([]Selector{}),
+		keyValues:   make(map[string]any),
 	}
 
 	err := azappcfg.loadKeyValues(ctx, mockClient)
 	assert.NoError(t, err)
-	// We should expect pointer values in the keyValues map
-	assert.Equal(t, &value1, azappcfg.keyValues["key1"])
-	// For JSON content types, we still expect the parsed value
+	assert.Equal(t, "value1", azappcfg.keyValues["key1"])
 	assert.Equal(t, map[string]interface{}{"jsonKey": "jsonValue"}, azappcfg.keyValues["key2"])
 }
 
@@ -74,17 +72,16 @@ func TestLoadKeyValues_WithTrimPrefix(t *testing.T) {
 		clientManager: &configurationClientManager{
 			staticClient: &configurationClientWrapper{client: &azappconfig.Client{}},
 		},
-		kvSelectors:    deduplicateSelectors([]Selector{}),
-		trimPrefixes:   []string{"prefix:", "other:"},
-		keyValues:      make(map[string]any),
+		kvSelectors:  deduplicateSelectors([]Selector{}),
+		trimPrefixes: []string{"prefix:", "other:"},
+		keyValues:    make(map[string]any),
 	}
 
 	err := azappcfg.loadKeyValues(ctx, mockClient)
 	assert.NoError(t, err)
-	// We should expect pointer values in the keyValues map
-	assert.Equal(t, &value1, azappcfg.keyValues["key1"])
-	assert.Equal(t, &value2, azappcfg.keyValues["key2"])
-	assert.Equal(t, &value3, azappcfg.keyValues["key3"])
+	assert.Equal(t, "value1", azappcfg.keyValues["key1"])
+	assert.Equal(t, "value2", azappcfg.keyValues["key2"])
+	assert.Equal(t, "value3", azappcfg.keyValues["key3"])
 }
 
 func TestLoadKeyValues_EmptyKeyAfterTrim(t *testing.T) {
@@ -104,9 +101,9 @@ func TestLoadKeyValues_EmptyKeyAfterTrim(t *testing.T) {
 		clientManager: &configurationClientManager{
 			staticClient: &configurationClientWrapper{client: &azappconfig.Client{}},
 		},
-		kvSelectors:    deduplicateSelectors([]Selector{}),
-		trimPrefixes:   []string{"prefix:"},
-		keyValues:      make(map[string]any),
+		kvSelectors:  deduplicateSelectors([]Selector{}),
+		trimPrefixes: []string{"prefix:"},
+		keyValues:    make(map[string]any),
 	}
 
 	err := azappcfg.loadKeyValues(ctx, mockClient)
@@ -133,14 +130,18 @@ func TestLoadKeyValues_InvalidJson(t *testing.T) {
 		clientManager: &configurationClientManager{
 			staticClient: &configurationClientWrapper{client: &azappconfig.Client{}},
 		},
-		kvSelectors:    deduplicateSelectors([]Selector{}),
-		keyValues:      make(map[string]any),
+		kvSelectors: deduplicateSelectors([]Selector{}),
+		keyValues:   make(map[string]any),
 	}
 
 	err := azappcfg.loadKeyValues(ctx, mockClient)
 	assert.NoError(t, err)
+
 	assert.Len(t, azappcfg.keyValues, 1)
-	assert.Equal(t, &value1, azappcfg.keyValues["key1"])
+	assert.Equal(t, "value1", azappcfg.keyValues["key1"])
+	// The invalid JSON key should be skipped
+	_, exists := azappcfg.keyValues["key2"]
+	assert.False(t, exists)
 }
 
 func TestDeduplicateSelectors(t *testing.T) {
