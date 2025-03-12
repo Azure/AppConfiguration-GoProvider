@@ -9,10 +9,10 @@ import (
 	"github.com/Azure/azure-sdk-for-go/sdk/azidentity"
 )
 
-// AppConfig represents the application configuration
+// AppConfig represents the application configuration test
 type AppConfig struct {
 	Server struct {
-		Port string `json:"port"`
+		Port int    `json:"port"`
 		Host string `json:"host"`
 		// Protocol string `json:"protocol"`
 		// Timeout  int    `json:"timeout"`
@@ -42,7 +42,7 @@ func main() {
 	// Create provider
 	ctx := context.Background()
 	provider, err := azureappconfiguration.Load(ctx, azureappconfiguration.AuthenticationOptions{
-		ConnectionString: "Endpoint=https://junbchenconfig-test.azconfig.io;Id=Lc6t;Secret=o5evjNp4q+oxkF9pDct3GThx41Zbm/a5q4qBaRraY84=", // Replace with your connection string
+		ConnectionString: "[Remove secret]", // Replace with your connection string
 	}, &azureappconfiguration.Options{
 		Selectors: []azureappconfiguration.Selector{
 			{
@@ -80,7 +80,7 @@ func main() {
 	// Access the configuration values through the struct
 	fmt.Println("Server Configuration:")
 	fmt.Printf("  Host: %s\n", config.Server.Host)
-	fmt.Printf("  Port: %s\n", config.Server.Port)
+	fmt.Printf("  Port: %d\n", config.Server.Port)
 	// fmt.Printf("  Protocol: %s\n", config.Server.Protocol)
 	// fmt.Printf("  Timeout: %d seconds\n", config.Server.Timeout)
 
