@@ -30,7 +30,7 @@ type AzureAppConfiguration struct {
 }
 
 func Load(ctx context.Context, authentication AuthenticationOptions, options *Options) (*AzureAppConfiguration, error) {
-	if err := verifyAuthenticationOptions(authOptions); err != nil {
+	if err := verifyAuthenticationOptions(authentication); err != nil {
 		return nil, err
 	}
 
@@ -195,6 +195,19 @@ func isJsonContentType(contentType *string) bool {
 	contentTypeStr := strings.ToLower(strings.Trim(*contentType, " "))
 	matched, _ := regexp.MatchString("^application\\/(?:[^\\/]+\\+)?json(;.*)?$", contentTypeStr)
 	return matched
+}
+
+func getValidFeatureFlagSelectors(selectors []Selector) []Selector {
+	s := deduplicateSelectors(selectors)
+	result := make([]Selector, len(s))
+	for i, selector := range s {
+		result[i] = Selector{
+			KeyFilter:   featureFlagPrefixKey + selector.KeyFilter,
+			LabelFilter: selector.LabelFilter,
+		}
+	}
+
+	return result
 }
 
 func deduplicateSelectors(selectors []Selector) []Selector {

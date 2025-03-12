@@ -97,7 +97,7 @@ func TestLoadFeatureFlags_Success(t *testing.T) {
 		featureFlags:   make(map[string]any),
 	}
 
-	err := azappcfg.loadFeatureFlags(ctx)
+	err := azappcfg.loadFeatureFlags(ctx, mockClient)
 	assert.NoError(t, err)
 	// Verify feature flag structure is created correctly
 	assert.Contains(t, azappcfg.featureFlags, featureManagementSectionKey)
