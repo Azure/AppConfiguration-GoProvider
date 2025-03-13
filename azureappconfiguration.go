@@ -6,9 +6,11 @@ package azureappconfiguration
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"log"
 	"regexp"
 	"strings"
+	"sync"
 
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore"
 	"golang.org/x/sync/errgroup"
@@ -19,8 +21,10 @@ type AzureAppConfiguration struct {
 	keyValueETags map[Selector][]*azcore.ETag
 	kvSelectors   []Selector
 	trimPrefixes  []string
+	secrets       map[string]string
 
 	clientManager *configurationClientManager
+	resolver      *keyVaultReferenceResolver
 }
 
 func Load(ctx context.Context, authentication AuthenticationOptions, options *Options) (*AzureAppConfiguration, error) {
@@ -43,6 +47,7 @@ func Load(ctx context.Context, authentication AuthenticationOptions, options *Op
 	azappcfg.kvSelectors = deduplicateSelectors(options.Selectors)
 	azappcfg.trimPrefixes = options.TrimKeyPrefixes
 	azappcfg.clientManager = clientManager
+	azappcfg.resolver = newKeyVaultReferenceResolver(options.KeyVaultOptions)
 
 	if err := azappcfg.load(ctx); err != nil {
 		return nil, err
@@ -57,12 +62,7 @@ func (azappcfg *AzureAppConfiguration) load(ctx context.Context) error {
 		client:    azappcfg.clientManager.staticClient.client,
 	}
 
-	eg, egCtx := errgroup.WithContext(ctx)
-	eg.Go(func() error {
-		return azappcfg.loadKeyValues(egCtx, keyValuesClient)
-	})
-
-	return eg.Wait()
+	return azappcfg.loadKeyValues(ctx, keyValuesClient)
 }
 
 func (azappcfg *AzureAppConfiguration) loadKeyValues(ctx context.Context, settingsClient settingsClient) error {
@@ -72,6 +72,7 @@ func (azappcfg *AzureAppConfiguration) loadKeyValues(ctx context.Context, settin
 	}
 
 	kvSettings := make(map[string]any, len(settingsResponse.settings))
+	keyVaultRef := make(map[string]string)
 	for _, setting := range settingsResponse.settings {
 		if setting.Key == nil {
 			continue
@@ -91,7 +92,7 @@ func (azappcfg *AzureAppConfiguration) loadKeyValues(ctx context.Context, settin
 		case featureFlagContentType:
 			continue // ignore feature flag while getting key value settings
 		case secretReferenceContentType:
-			continue // Todo - implement secret reference
+			keyVaultRef[trimmedKey] = *setting.Value
 		default:
 			if isJsonContentType(setting.ContentType) {
 				var v any
@@ -106,8 +107,31 @@ func (azappcfg *AzureAppConfiguration) loadKeyValues(ctx context.Context, settin
 		}
 	}
 
+	var eg errgroup.Group
+	resolvedSecrets := make(map[string]string, len(keyVaultRef))
+	if len(keyVaultRef) > 0 {
+		lock := &sync.Mutex{}
+		for key, kvRef := range keyVaultRef {
+			eg.Go(func() error {
+				resolvedSecret, err := azappcfg.resolver.resolveSecret(ctx, kvRef)
+				if err != nil {
+					return fmt.Errorf("fail to resolve the Key Vault reference '%s': %s", key, err.Error())
+				}
+				lock.Lock()
+				defer lock.Unlock()
+				resolvedSecrets[key] = resolvedSecret
+				return nil
+			})
+		}
+
+		if err := eg.Wait(); err != nil {
+			return err
+		}
+	}
+
 	azappcfg.keyValueETags = settingsResponse.eTags
 	azappcfg.keyValues = kvSettings
+	azappcfg.secrets = resolvedSecrets
 
 	return nil
 }
