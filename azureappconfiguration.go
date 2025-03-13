@@ -101,7 +101,7 @@ func (azappcfg *AzureAppConfiguration) loadKeyValues(ctx context.Context, settin
 				}
 				kvSettings[trimmedKey] = v
 			} else {
-				kvSettings[trimmedKey] = *setting.Value
+				kvSettings[trimmedKey] = setting.Value
 			}
 		}
 	}
