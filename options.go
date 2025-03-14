@@ -79,8 +79,4 @@ type KeyVaultOptions struct {
 
 	// SecretResolver specifies the callback used to resolve key vault references
 	SecretResolver SecretResolver
-
-	// RefreshOptions specifies the behavior of key vault reference resolution refresh
-	// Refresh interval must be greater than 1 minute.
-	RefreshOptions RefreshOptions
 }

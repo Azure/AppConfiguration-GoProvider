@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"net/url"
 	"strings"
+	"sync"
 
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore"
 	"github.com/Azure/azure-sdk-for-go/sdk/security/keyvault/azsecrets"
@@ -16,7 +17,7 @@ import (
 
 // keyVaultReferenceResolver resolves Key Vault references to their actual secret values
 type keyVaultReferenceResolver struct {
-	clients    map[string]secretClient
+	clients    sync.Map // map[string]secretClient
 	resolver   SecretResolver
 	credential azcore.TokenCredential
 }
@@ -35,15 +36,6 @@ type keyVaultReference struct {
 
 type secretClient interface {
 	GetSecret(ctx context.Context, name string, version string, options *azsecrets.GetSecretOptions) (azsecrets.GetSecretResponse, error)
-}
-
-// newKeyVaultReferenceResolver creates a new resolver for Key Vault references
-func newKeyVaultReferenceResolver(options KeyVaultOptions) *keyVaultReferenceResolver {
-	return &keyVaultReferenceResolver{
-		clients:    make(map[string]secretClient),
-		resolver:   options.SecretResolver,
-		credential: options.Credential,
-	}
 }
 
 // resolveSecret resolves a Key Vault reference to its actual secret value
@@ -97,9 +89,8 @@ func (r *keyVaultReferenceResolver) extractKeyVaultURI(reference string) (string
 
 // getSecretClient gets or creates a client for the specified vault URL
 func (r *keyVaultReferenceResolver) getSecretClient(vaultURL string) (secretClient, error) {
-	client, ok := r.clients[vaultURL]
-	if ok {
-		return client, nil
+	if client, ok := r.clients.Load(vaultURL); ok {
+		return client.(secretClient), nil
 	}
 
 	if r.credential == nil {
@@ -111,7 +102,13 @@ func (r *keyVaultReferenceResolver) getSecretClient(vaultURL string) (secretClie
 		return nil, fmt.Errorf("failed to create Key Vault client: %w", err)
 	}
 
-	r.clients[vaultURL] = client
+	// Store the client - if concurrent call already stored a client, use the existing one
+	storedClient, loaded := r.clients.LoadOrStore(vaultURL, client)
+	if loaded {
+		// Another goroutine already created and stored a client
+		return storedClient.(secretClient), nil
+	}
+
 	return client, nil
 }
 

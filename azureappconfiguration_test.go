@@ -5,6 +5,7 @@ package azureappconfiguration
 
 import (
 	"context"
+	"sync"
 	"testing"
 
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore"
@@ -49,6 +50,44 @@ func TestLoadKeyValues_Success(t *testing.T) {
 	assert.NoError(t, err)
 	assert.Equal(t, &value1, azappcfg.keyValues["key1"])
 	assert.Equal(t, map[string]interface{}{"jsonKey": "jsonValue"}, azappcfg.keyValues["key2"])
+}
+
+func TestLoadKeyValues_WithKeyVaultReferences(t *testing.T) {
+	ctx := context.Background()
+	mockSettingsClient := new(mockSettingsClient)
+	mockSecretResolver := new(mockSecretResolver)
+
+	kvReference := `{"uri":"https://myvault.vault.azure.net/secrets/mysecret"}`
+	mockResponse := &settingsResponse{
+		settings: []azappconfig.Setting{
+			{Key: toPtr("key1"), Value: toPtr("value1"), ContentType: toPtr("")},
+			{Key: toPtr("secret1"), Value: toPtr(kvReference), ContentType: toPtr(secretReferenceContentType)},
+		},
+		eTags: map[Selector][]*azcore.ETag{},
+	}
+
+	mockSettingsClient.On("getSettings", ctx).Return(mockResponse, nil)
+	mockSecretResolver.On("ResolveSecret", ctx, kvReference).Return("resolved-secret", nil)
+
+	azappcfg := &AzureAppConfiguration{
+		clientManager: &configurationClientManager{
+			staticClient: &configurationClientWrapper{client: nil},
+		},
+		kvSelectors: deduplicateSelectors([]Selector{}),
+		keyValues:   make(map[string]any),
+		resolver: &keyVaultReferenceResolver{
+			clients:  sync.Map{},
+			resolver: mockSecretResolver,
+		},
+	}
+
+	err := azappcfg.loadKeyValues(ctx, mockSettingsClient)
+
+	assert.NoError(t, err)
+	assert.Equal(t, "value1", *azappcfg.keyValues["key1"].(*string))
+	assert.Equal(t, "resolved-secret", azappcfg.keyValues["secret1"])
+	mockSettingsClient.AssertExpectations(t)
+	mockSecretResolver.AssertExpectations(t)
 }
 
 func TestLoadKeyValues_WithTrimPrefix(t *testing.T) {
