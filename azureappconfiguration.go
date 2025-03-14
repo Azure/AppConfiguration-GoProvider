@@ -12,8 +12,9 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/Azure/AppConfiguration-GoProvider/azureappconfiguration/internal/decoder"
+	"github.com/Azure/AppConfiguration-GoProvider/azureappconfiguration/internal/tree"
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore"
+	decoder "github.com/go-viper/mapstructure/v2"
 	"golang.org/x/sync/errgroup"
 )
 
@@ -75,13 +76,14 @@ func (azappcfg *AzureAppConfiguration) Unmarshal(rawVal any, options *Constructi
 		Metadata:         nil,
 		Result:           rawVal,
 		WeaklyTypedInput: true,
+		TagName:          "json",
 		DecodeHook: decoder.ComposeDecodeHookFunc(
 			decoder.StringToTimeDurationHookFunc(),
 			decoder.StringToSliceHookFunc(","),
 		),
 	}
 
-	decoder, err := decoder.New(config)
+	decoder, err := decoder.NewDecoder(config)
 	if err != nil {
 		return err
 	}
@@ -252,7 +254,7 @@ func deduplicateSelectors(selectors []Selector) []Selector {
 
 // constructHierarchicalMap converts a flat map with delimited keys to a hierarchical structure
 func (azappcfg *AzureAppConfiguration) constructHierarchicalMap(separator string) map[string]any {
-	tree := &decoder.Tree{}
+	tree := &tree.Tree{}
 	for k, v := range azappcfg.keyValues {
 		tree.Insert(strings.Split(k, separator), v)
 	}
