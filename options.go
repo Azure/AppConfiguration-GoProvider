@@ -57,12 +57,6 @@ type WatchedSetting struct {
 	Label string
 }
 
-// RefreshOptions contains optional parameters to configure the behavior of refresh
-type RefreshOptions struct {
-	Interval time.Duration
-	Enabled  bool
-}
-
 // SecretResolver is an interface to resolve secret from key vault reference
 type SecretResolver interface {
 	// keyVaultReference: "https://{keyVaultName}.vault.azure.net/secrets/{secretName}/{secretVersion}"
@@ -76,4 +70,12 @@ type KeyVaultOptions struct {
 
 	// SecretResolver specifies the callback used to resolve key vault references
 	SecretResolver SecretResolver
+}
+
+// ConstructionOptions contains optional parameters for Unmarshal and GetBytes methods
+type ConstructionOptions struct {
+	// Separator is used to unmarshal configuration when the keys themselves contain the separator
+	// Supported values: '.', ',', ';', '-', '_', '__', '/', ':'.
+	// If not provided, the default separator "." will be used
+	Separator string
 }

@@ -12,6 +12,7 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/Azure/AppConfiguration-GoProvider/azureappconfiguration/internal/decoder"
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore"
 	"golang.org/x/sync/errgroup"
 )
@@ -57,6 +58,54 @@ func Load(ctx context.Context, authentication AuthenticationOptions, options *Op
 	}
 
 	return azappcfg, nil
+}
+
+func (azappcfg *AzureAppConfiguration) Unmarshal(rawVal any, options *ConstructionOptions) error {
+	if options == nil {
+		options = &ConstructionOptions{
+			Separator: defaultSeparator,
+		}
+	}
+
+	if err := verifySeparator(options.Separator); err != nil {
+		return err
+	}
+
+	config := &decoder.DecoderConfig{
+		Metadata:         nil,
+		Result:           rawVal,
+		WeaklyTypedInput: true,
+		DecodeHook: decoder.ComposeDecodeHookFunc(
+			decoder.StringToTimeDurationHookFunc(),
+			decoder.StringToSliceHookFunc(","),
+		),
+	}
+
+	decoder, err := decoder.New(config)
+	if err != nil {
+		return err
+	}
+
+	return decoder.Decode(azappcfg.constructHierarchicalMap(options.Separator))
+}
+
+func (azappcfg *AzureAppConfiguration) GetBytes(options *ConstructionOptions) ([]byte, error) {
+	if options == nil {
+		options = &ConstructionOptions{
+			Separator: defaultSeparator,
+		}
+	}
+
+	if err := verifySeparator(options.Separator); err != nil {
+		return nil, err
+	}
+
+	bytes, err := json.Marshal(azappcfg.constructHierarchicalMap(options.Separator))
+	if err != nil {
+		return nil, err
+	}
+
+	return bytes, nil
 }
 
 func (azappcfg *AzureAppConfiguration) load(ctx context.Context) error {
@@ -199,4 +248,14 @@ func deduplicateSelectors(selectors []Selector) []Selector {
 	// Reverse the result to maintain the original order
 	reverse(result)
 	return result
+}
+
+// constructHierarchicalMap converts a flat map with delimited keys to a hierarchical structure
+func (azappcfg *AzureAppConfiguration) constructHierarchicalMap(separator string) map[string]any {
+	tree := &decoder.Tree{}
+	for k, v := range azappcfg.keyValues {
+		tree.Insert(strings.Split(k, separator), v)
+	}
+
+	return tree.Build()
 }
