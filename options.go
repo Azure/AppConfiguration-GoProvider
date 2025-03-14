@@ -34,11 +34,6 @@ type Selector struct {
 	LabelFilter string
 }
 
-// equal compares two Selectors for equality
-func (s Selector) equal(other Selector) bool {
-	return s.KeyFilter == other.KeyFilter && s.LabelFilter == other.LabelFilter
-}
-
 // KeyValueRefreshOptions contains optional parameters to configure the behavior of key-value settings refresh
 type KeyValueRefreshOptions struct {
 	// WatchedSettings specifies the key-value settings to watch for changes
