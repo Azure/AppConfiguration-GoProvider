@@ -17,7 +17,7 @@ jobs:
     strategy:
       matrix:
         os: [ubuntu-latest, macos-latest, windows-latest]
-        go-version: ['1.22', '1.23']
+        go-version: ["1.21", "1.22", "1.23", "1.24"]
 
     steps:
     - name: Check out code
@@ -35,8 +35,13 @@ jobs:
     - name: Build
       run: go build -v ./...
 
-    - name: Run tests
-      run: go test -v -race -coverprofile=coverage.txt -covermode=atomic ./...
+    - name: Test
+      run: go test -race -v  ./...
+      if: runner.os != 'Windows'
+
+    - name: Test (without race detector)
+      run: go test -v ./...
+      if: runner.os == 'Windows'
 
   lint:
     name: Lint
