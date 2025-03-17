@@ -5,6 +5,7 @@ package azureappconfiguration
 
 import (
 	"context"
+	"net/url"
 	"sync"
 	"testing"
 
@@ -28,7 +29,7 @@ type mockSecretResolver struct {
 	mock.Mock
 }
 
-func (m *mockSecretResolver) ResolveSecret(ctx context.Context, keyVaultReference string) (string, error) {
+func (m *mockSecretResolver) ResolveSecret(ctx context.Context, keyVaultReference url.URL) (string, error) {
 	args := m.Called(ctx, keyVaultReference)
 	return args.String(0), args.Error(1)
 }
@@ -159,12 +160,13 @@ func TestResolveSecret_WithCustomResolver(t *testing.T) {
 	mockResolver := new(mockSecretResolver)
 
 	resolver := keyVaultReferenceResolver{
-		clients:  sync.Map{},
-		resolver: mockResolver,
+		clients:        sync.Map{},
+		secretResolver: mockResolver,
 	}
 
 	reference := `{"uri":"https://myvault.vault.azure.net/secrets/mysecret"}`
-	mockResolver.On("ResolveSecret", ctx, mock.Anything).Return("resolved-secret", nil)
+	expectedURL, _ := url.Parse("https://myvault.vault.azure.net/secrets/mysecret")
+	mockResolver.On("ResolveSecret", ctx, *expectedURL).Return("resolved-secret", nil)
 
 	secret, err := resolver.resolveSecret(ctx, reference)
 

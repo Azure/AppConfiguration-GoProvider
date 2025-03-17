@@ -47,9 +47,9 @@ func Load(ctx context.Context, authentication AuthenticationOptions, options *Op
 	azappcfg.trimPrefixes = options.TrimKeyPrefixes
 	azappcfg.clientManager = clientManager
 	azappcfg.resolver = &keyVaultReferenceResolver{
-		clients:    sync.Map{},
-		resolver:   options.KeyVaultOptions.SecretResolver,
-		credential: options.KeyVaultOptions.Credential,
+		clients:        sync.Map{},
+		secretResolver: options.KeyVaultOptions.SecretResolver,
+		credential:     options.KeyVaultOptions.Credential,
 	}
 
 	if err := azappcfg.load(ctx); err != nil {
@@ -113,6 +113,10 @@ func (azappcfg *AzureAppConfiguration) loadKeyValues(ctx context.Context, settin
 	var eg errgroup.Group
 	resolvedSecrets := sync.Map{}
 	if len(keyVaultRefs) > 0 {
+		if azappcfg.resolver.credential == nil && azappcfg.resolver.secretResolver == nil {
+			return fmt.Errorf("no Key Vault credential or SecretResolver configured")
+		}
+
 		for key, kvRef := range keyVaultRefs {
 			key, kvRef := key, kvRef
 			eg.Go(func() error {

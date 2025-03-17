@@ -5,6 +5,7 @@ package azureappconfiguration
 
 import (
 	"context"
+	"net/url"
 	"sync"
 	"testing"
 
@@ -67,7 +68,8 @@ func TestLoadKeyValues_WithKeyVaultReferences(t *testing.T) {
 	}
 
 	mockSettingsClient.On("getSettings", ctx).Return(mockResponse, nil)
-	mockSecretResolver.On("ResolveSecret", ctx, mock.Anything).Return("resolved-secret", nil)
+	expectedURL, _ := url.Parse("https://myvault.vault.azure.net/secrets/mysecret")
+	mockSecretResolver.On("ResolveSecret", ctx, *expectedURL).Return("resolved-secret", nil)
 
 	azappcfg := &AzureAppConfiguration{
 		clientManager: &configurationClientManager{
@@ -76,8 +78,8 @@ func TestLoadKeyValues_WithKeyVaultReferences(t *testing.T) {
 		kvSelectors: deduplicateSelectors([]Selector{}),
 		keyValues:   make(map[string]any),
 		resolver: &keyVaultReferenceResolver{
-			clients:  sync.Map{},
-			resolver: mockSecretResolver,
+			clients:        sync.Map{},
+			secretResolver: mockSecretResolver,
 		},
 	}
 

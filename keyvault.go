@@ -17,9 +17,9 @@ import (
 
 // keyVaultReferenceResolver resolves Key Vault references to their actual secret values
 type keyVaultReferenceResolver struct {
-	clients    sync.Map // map[string]secretClient
-	resolver   SecretResolver
-	credential azcore.TokenCredential
+	clients        sync.Map // map[string]secretClient
+	secretResolver SecretResolver
+	credential     azcore.TokenCredential
 }
 
 // secretMetadata contains parsed information about a Key Vault secret reference
@@ -52,8 +52,13 @@ func (r *keyVaultReferenceResolver) resolveSecret(ctx context.Context, keyVaultR
 		return "", fmt.Errorf("invalid Key Vault reference: %w", err)
 	}
 
-	if r.resolver != nil {
-		return r.resolver.ResolveSecret(ctx, uri)
+	if r.secretResolver != nil {
+		vaultUri, err := url.Parse(uri)
+		if err != nil {
+			return "", fmt.Errorf("invalid Key Vault reference: %w", err)
+		}
+
+		return r.secretResolver.ResolveSecret(ctx, *vaultUri)
 	}
 
 	vaultURL := fmt.Sprintf("https://%s", secretMeta.host)
@@ -92,10 +97,6 @@ func (r *keyVaultReferenceResolver) extractKeyVaultURI(reference string) (string
 func (r *keyVaultReferenceResolver) getSecretClient(vaultURL string) (secretClient, error) {
 	if client, ok := r.clients.Load(vaultURL); ok {
 		return client.(secretClient), nil
-	}
-
-	if r.credential == nil {
-		return nil, fmt.Errorf("no Key Vault credential or SecretResolver configured")
 	}
 
 	client, err := azsecrets.NewClient(vaultURL, r.credential, nil)
