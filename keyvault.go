@@ -40,10 +40,7 @@ type secretClient interface {
 
 // resolveSecret resolves a Key Vault reference to its actual secret value
 func (r *keyVaultReferenceResolver) resolveSecret(ctx context.Context, keyVaultReference string) (string, error) {
-	if r.resolver != nil {
-		return r.resolver.ResolveSecret(ctx, keyVaultReference)
-	}
-
+	// vaultUri: "https://{keyVaultName}.vault.azure.net/secrets/{secretName}/{secretVersion}"
 	uri, err := r.extractKeyVaultURI(keyVaultReference)
 	if err != nil {
 		return "", fmt.Errorf("failed to parse Key Vault reference: %w", err)
@@ -53,6 +50,10 @@ func (r *keyVaultReferenceResolver) resolveSecret(ctx context.Context, keyVaultR
 	secretMeta, err := parse(uri)
 	if err != nil {
 		return "", fmt.Errorf("invalid Key Vault reference: %w", err)
+	}
+
+	if r.resolver != nil {
+		return r.resolver.ResolveSecret(ctx, uri)
 	}
 
 	vaultURL := fmt.Sprintf("https://%s", secretMeta.host)
@@ -77,7 +78,7 @@ func (r *keyVaultReferenceResolver) resolveSecret(ctx context.Context, keyVaultR
 func (r *keyVaultReferenceResolver) extractKeyVaultURI(reference string) (string, error) {
 	// Valid Key Vault Reference setting value to parse
 	// {
-	// 	"uri":"https://{keyVaultName}.vaule.azure.net/secrets/{secretName}/{secretVersion}"
+	// 	"uri":"https://{keyVaultName}.vault.azure.net/secrets/{secretName}/{secretVersion}"
 	// }
 	var kvRef keyVaultReference
 	if err := json.Unmarshal([]byte(reference), &kvRef); err == nil && kvRef.URI != "" {

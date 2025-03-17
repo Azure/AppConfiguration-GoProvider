@@ -164,7 +164,7 @@ func TestResolveSecret_WithCustomResolver(t *testing.T) {
 	}
 
 	reference := `{"uri":"https://myvault.vault.azure.net/secrets/mysecret"}`
-	mockResolver.On("ResolveSecret", ctx, reference).Return("resolved-secret", nil)
+	mockResolver.On("ResolveSecret", ctx, mock.Anything).Return("resolved-secret", nil)
 
 	secret, err := resolver.resolveSecret(ctx, reference)
 

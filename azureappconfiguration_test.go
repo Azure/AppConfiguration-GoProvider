@@ -67,7 +67,7 @@ func TestLoadKeyValues_WithKeyVaultReferences(t *testing.T) {
 	}
 
 	mockSettingsClient.On("getSettings", ctx).Return(mockResponse, nil)
-	mockSecretResolver.On("ResolveSecret", ctx, kvReference).Return("resolved-secret", nil)
+	mockSecretResolver.On("ResolveSecret", ctx, mock.Anything).Return("resolved-secret", nil)
 
 	azappcfg := &AzureAppConfiguration{
 		clientManager: &configurationClientManager{
