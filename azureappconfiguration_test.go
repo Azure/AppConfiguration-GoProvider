@@ -8,6 +8,7 @@ import (
 	"net/url"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore"
 	"github.com/Azure/azure-sdk-for-go/sdk/data/azappconfig"
@@ -396,4 +397,114 @@ func TestIsJsonContentType(t *testing.T) {
 
 func toPtr(s string) *string {
 	return &s
+}
+
+// mockDelayedSecretResolver simulates a resolver with variable response times
+type mockDelayedSecretResolver struct {
+	mock.Mock
+	delays map[string]time.Duration
+	mu     sync.Mutex
+	calls  []time.Time
+}
+
+func (m *mockDelayedSecretResolver) ResolveSecret(ctx context.Context, keyVaultReference url.URL) (string, error) {
+	m.mu.Lock()
+	m.calls = append(m.calls, time.Now())
+	m.mu.Unlock()
+
+	if delay, ok := m.delays[keyVaultReference.String()]; ok {
+		time.Sleep(delay)
+	}
+	args := m.Called(ctx, keyVaultReference)
+	return args.String(0), args.Error(1)
+}
+
+func TestLoadKeyValues_WithConcurrentKeyVaultReferences(t *testing.T) {
+	ctx := context.Background()
+	mockSettingsClient := new(mockSettingsClient)
+
+	// Create a resolver with intentional delays to verify concurrent execution
+	mockResolver := &mockDelayedSecretResolver{
+		delays: map[string]time.Duration{
+			"https://vault1.vault.azure.net/secrets/secret1": 50 * time.Millisecond,
+			"https://vault1.vault.azure.net/secrets/secret2": 30 * time.Millisecond,
+			"https://vault2.vault.azure.net/secrets/secret3": 40 * time.Millisecond,
+		},
+		calls: make([]time.Time, 0, 3),
+	}
+
+	// Create key vault references
+	kvReference1 := `{"uri":"https://vault1.vault.azure.net/secrets/secret1"}`
+	kvReference2 := `{"uri":"https://vault1.vault.azure.net/secrets/secret2"}`
+	kvReference3 := `{"uri":"https://vault2.vault.azure.net/secrets/secret3"}`
+
+	// Set up mock response with multiple key vault references
+	mockResponse := &settingsResponse{
+		settings: []azappconfig.Setting{
+			{Key: toPtr("standard"), Value: toPtr("value1"), ContentType: toPtr("")},
+			{Key: toPtr("secret1"), Value: toPtr(kvReference1), ContentType: toPtr(secretReferenceContentType)},
+			{Key: toPtr("secret2"), Value: toPtr(kvReference2), ContentType: toPtr(secretReferenceContentType)},
+			{Key: toPtr("secret3"), Value: toPtr(kvReference3), ContentType: toPtr(secretReferenceContentType)},
+		},
+		eTags: map[Selector][]*azcore.ETag{},
+	}
+
+	mockSettingsClient.On("getSettings", ctx).Return(mockResponse, nil)
+
+	// Set up expectations for mock resolver
+	secret1URL, _ := url.Parse("https://vault1.vault.azure.net/secrets/secret1")
+	secret2URL, _ := url.Parse("https://vault1.vault.azure.net/secrets/secret2")
+	secret3URL, _ := url.Parse("https://vault2.vault.azure.net/secrets/secret3")
+
+	mockResolver.On("ResolveSecret", ctx, *secret1URL).Return("resolved-secret1", nil)
+	mockResolver.On("ResolveSecret", ctx, *secret2URL).Return("resolved-secret2", nil)
+	mockResolver.On("ResolveSecret", ctx, *secret3URL).Return("resolved-secret3", nil)
+
+	// Create app configuration
+	azappcfg := &AzureAppConfiguration{
+		clientManager: &configurationClientManager{
+			staticClient: &configurationClientWrapper{client: nil},
+		},
+		kvSelectors: deduplicateSelectors([]Selector{}),
+		keyValues:   make(map[string]any),
+		resolver: &keyVaultReferenceResolver{
+			clients:        sync.Map{},
+			secretResolver: mockResolver,
+		},
+	}
+
+	// Record start time
+	startTime := time.Now()
+
+	// Load key values
+	err := azappcfg.loadKeyValues(ctx, mockSettingsClient)
+
+	// Record elapsed time
+	elapsed := time.Since(startTime)
+
+	// Verify results
+	assert.NoError(t, err)
+	assert.Equal(t, "value1", *azappcfg.keyValues["standard"].(*string))
+	assert.Equal(t, "resolved-secret1", azappcfg.keyValues["secret1"])
+	assert.Equal(t, "resolved-secret2", azappcfg.keyValues["secret2"])
+	assert.Equal(t, "resolved-secret3", azappcfg.keyValues["secret3"])
+
+	// Verify all resolver calls were made
+	mockResolver.AssertNumberOfCalls(t, "ResolveSecret", 3)
+	mockSettingsClient.AssertExpectations(t)
+
+	// Verify concurrent execution by checking elapsed time
+	// If executed sequentially, it would take at least 50+30+40=120ms
+	// With concurrency, it should take closer to the longest delay (50ms) plus some overhead
+	assert.Less(t, elapsed, 110*time.Millisecond, "Expected concurrent execution to complete faster than sequential execution")
+
+	// Verify that calls started close to each other (within 10ms)
+	// This indicates that the goroutines were started concurrently
+	if len(mockResolver.calls) == 3 {
+		firstCallTime := mockResolver.calls[0]
+		for i := 1; i < len(mockResolver.calls); i++ {
+			timeDiff := mockResolver.calls[i].Sub(firstCallTime)
+			assert.Less(t, timeDiff, 10*time.Millisecond, "Expected resolver calls to start concurrently")
+		}
+	}
 }
