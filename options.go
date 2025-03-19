@@ -4,6 +4,8 @@
 package azureappconfiguration
 
 import (
+	"context"
+	"net/url"
 	"time"
 
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore"
@@ -17,6 +19,7 @@ type Options struct {
 	TrimKeyPrefixes []string
 	Selectors       []Selector
 	RefreshOptions  KeyValueRefreshOptions
+	KeyVaultOptions KeyVaultOptions
 	ClientOptions   *azappconfig.ClientOptions
 }
 
@@ -57,4 +60,25 @@ type KeyValueRefreshOptions struct {
 type WatchedSetting struct {
 	Key   string
 	Label string
+}
+
+// RefreshOptions contains optional parameters to configure the behavior of refresh
+type RefreshOptions struct {
+	Interval time.Duration
+	Enabled  bool
+}
+
+// SecretResolver is an interface to resolve secret from key vault reference
+type SecretResolver interface {
+	// keyVaultReference: "https://{keyVaultName}.vault.azure.net/secrets/{secretName}/{secretVersion}"
+	ResolveSecret(ctx context.Context, keyVaultReference url.URL) (string, error)
+}
+
+// KeyVaultOptions contains optional parameters to configure the behavior of key vault reference resolution
+type KeyVaultOptions struct {
+	// Credential specifies the token credential used to authenticate to key vaults
+	Credential azcore.TokenCredential
+
+	// SecretResolver specifies the callback used to resolve key vault references
+	SecretResolver SecretResolver
 }
