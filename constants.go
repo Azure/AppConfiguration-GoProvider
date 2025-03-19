@@ -9,12 +9,6 @@ import "time"
 const (
 	// minimalRefreshInterval is the minimum allowed refresh interval for key-value settings
 	minimalRefreshInterval time.Duration = time.Second
-
-	// keyVaultMinimalRefreshInterval is the minimum allowed refresh interval for Key Vault references
-	keyVaultMinimalRefreshInterval time.Duration = time.Minute
-
-	// defaultRefreshInterval is the default interval used when no interval is specified
-	defaultRefreshInterval time.Duration = 30 * time.Second
 )
 
 // Configuration client constants

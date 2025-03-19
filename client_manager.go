@@ -83,13 +83,6 @@ func (manager *configurationClientManager) initializeClient(authOptions Authenti
 	return nil
 }
 
-// getClients returns the available configuration clients
-func (manager *configurationClientManager) getClients() []*configurationClientWrapper {
-	// Currently only the static client is available
-	// This can be extended to include replica clients in the future
-	return []*configurationClientWrapper{manager.staticClient}
-}
-
 // parseConnectionString extracts a named value from a connection string
 func parseConnectionString(connectionString string, token string) (string, error) {
 	if connectionString == "" {
