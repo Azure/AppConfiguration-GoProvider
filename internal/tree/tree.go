@@ -9,10 +9,10 @@ import (
 
 type Tree struct {
 	children map[string]*Tree
-	value    interface{}
+	value    any
 }
 
-func (t *Tree) Insert(parts []string, value interface{}) {
+func (t *Tree) Insert(parts []string, value any) {
 	tree := t
 	for i, part := range parts {
 		if tree.children == nil {

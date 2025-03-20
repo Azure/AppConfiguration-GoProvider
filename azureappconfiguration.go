@@ -61,20 +61,20 @@ func Load(ctx context.Context, authentication AuthenticationOptions, options *Op
 	return azappcfg, nil
 }
 
-func (azappcfg *AzureAppConfiguration) Unmarshal(rawVal any, options *ConstructionOptions) error {
-	if options == nil {
+func (azappcfg *AzureAppConfiguration) Unmarshal(v any, options *ConstructionOptions) error {
+	if options == nil || options.Separator == "" {
 		options = &ConstructionOptions{
 			Separator: defaultSeparator,
 		}
-	}
-
-	if err := verifySeparator(options.Separator); err != nil {
-		return err
+	} else {
+		err := verifySeparator(options.Separator)
+		if err != nil {
+			return err
+		}
 	}
 
 	config := &decoder.DecoderConfig{
-		Metadata:         nil,
-		Result:           rawVal,
+		Result:           v,
 		WeaklyTypedInput: true,
 		TagName:          "json",
 		DecodeHook: decoder.ComposeDecodeHookFunc(
@@ -92,22 +92,18 @@ func (azappcfg *AzureAppConfiguration) Unmarshal(rawVal any, options *Constructi
 }
 
 func (azappcfg *AzureAppConfiguration) GetBytes(options *ConstructionOptions) ([]byte, error) {
-	if options == nil {
+	if options == nil || options.Separator == "" {
 		options = &ConstructionOptions{
 			Separator: defaultSeparator,
 		}
+	} else {
+		err := verifySeparator(options.Separator)
+		if err != nil {
+			return nil, err
+		}
 	}
 
-	if err := verifySeparator(options.Separator); err != nil {
-		return nil, err
-	}
-
-	bytes, err := json.Marshal(azappcfg.constructHierarchicalMap(options.Separator))
-	if err != nil {
-		return nil, err
-	}
-
-	return bytes, nil
+	return json.Marshal(azappcfg.constructHierarchicalMap(options.Separator))
 }
 
 func (azappcfg *AzureAppConfiguration) load(ctx context.Context) error {

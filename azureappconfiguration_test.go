@@ -584,6 +584,50 @@ func TestUnmarshal_EmptyValues(t *testing.T) {
 	assert.Equal(t, []string{"default1", "default2"}, config.StringSlice)
 }
 
+func TestUnmarshal_EmptyValues_2(t *testing.T) {
+	// Define a struct with default values
+	type Config struct {
+		String      string
+		StringPtr   *string
+		Int         int
+		IntPtr      *int
+		Bool        bool
+		BoolPtr     *bool
+		StringSlice []string
+	}
+
+	// Setup test data with some empty values
+	defaultString := "default"
+	defaultInt := 42
+	defaultBool := true
+
+	// Partially initialize config
+	config := Config{
+		StringPtr: &defaultString,
+		IntPtr:    &defaultInt,
+		BoolPtr:   &defaultBool,
+	}
+
+	azappcfg := &AzureAppConfiguration{
+		keyValues: map[string]interface{}{
+			// Intentionally empty map to test empty values
+		},
+	}
+
+	// Unmarshal into the struct with existing default values
+	err := azappcfg.Unmarshal(&config, nil)
+
+	// Verify results - default values should remain unchanged
+	assert.NoError(t, err)
+	assert.Equal(t, "", config.String)
+	assert.Equal(t, &defaultString, config.StringPtr)
+	assert.Equal(t, 0, config.Int)
+	assert.Equal(t, &defaultInt, config.IntPtr)
+	assert.Equal(t, false, config.Bool)
+	assert.Equal(t, &defaultBool, config.BoolPtr)
+	assert.Nil(t, config.StringSlice)
+}
+
 func toPtr(s string) *string {
 	return &s
 }
