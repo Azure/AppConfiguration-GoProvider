@@ -1,14 +1,12 @@
-# Project
+# Azure App Configuration - Go Provider
 
-> This repo has been populated by an initial template to help get you started. Please
-> make sure to update the content to build a great experience for community-building.
+[Azure App Configuration](https://docs.microsoft.com/en-us/azure/azure-app-configuration/overview) is a managed service that helps developers centralize their application configurations simply and securely. Go provider adds additional functionalities above the [Azure SDK for Go](https://pkg.go.dev/github.com/Azure/azure-sdk-for-go/sdk/data/azappconfig), which enables loading configuration from an Azure App Configuration store in a managed way. 
 
-As the maintainer of this project, please make a few updates:
+## Installation
 
-- Improving this README.MD file to provide a great experience
-- Updating SUPPORT.MD with content about this project's support experience
-- Understanding the security reporting process in SECURITY.MD
-- Remove this section from the README
+```shell
+go get github.com/Azure/AppConfiguration-GoProvider/azureappconfiguration
+```
 
 ## Contributing
 
