@@ -28,11 +28,11 @@ func (t *Tree) Insert(parts []string, value any) {
 		tree = childTree
 		if i == len(parts)-1 {
 			switch obj := value.(type) {
-			case map[string]interface{}:
+			case map[string]any:
 				for k, v := range obj {
 					tree.Insert([]string{k}, v)
 				}
-			case []interface{}:
+			case []any:
 				for k, v := range obj {
 					tree.Insert([]string{strconv.Itoa(k)}, v)
 				}
@@ -43,8 +43,8 @@ func (t *Tree) Insert(parts []string, value any) {
 	}
 }
 
-func (t *Tree) Build() map[string]interface{} {
-	result := make(map[string]interface{})
+func (t *Tree) Build() map[string]any {
+	result := make(map[string]any)
 	for k, v := range t.children {
 		result[k] = v.Unflatten()
 	}
@@ -52,7 +52,7 @@ func (t *Tree) Build() map[string]interface{} {
 	return result
 }
 
-func (t *Tree) Unflatten() interface{} {
+func (t *Tree) Unflatten() any {
 	if len(t.children) == 0 {
 		return t.value
 	}
@@ -70,14 +70,14 @@ func (t *Tree) Unflatten() interface{} {
 	}
 
 	if isArray {
-		result := make([]interface{}, len(childrenArray))
+		result := make([]any, len(childrenArray))
 		for i, child := range childrenArray {
 			result[i] = child.Unflatten()
 		}
 		return result
 	}
 
-	result := make(map[string]interface{})
+	result := make(map[string]any)
 	for k, child := range t.children {
 		result[k] = child.Unflatten()
 	}
