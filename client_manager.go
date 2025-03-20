@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore"
+	"github.com/Azure/azure-sdk-for-go/sdk/azcore/policy"
 	"github.com/Azure/azure-sdk-for-go/sdk/data/azappconfig"
 )
 
@@ -30,7 +31,7 @@ type configurationClientWrapper struct {
 // newConfigurationClientManager creates a new configuration client manager
 func newConfigurationClientManager(authOptions AuthenticationOptions, clientOptions *azappconfig.ClientOptions) (*configurationClientManager, error) {
 	manager := &configurationClientManager{
-		clientOptions: clientOptions,
+		clientOptions: addModuleInfo(clientOptions),
 	}
 
 	// Create client based on authentication options
@@ -109,4 +110,16 @@ func parseConnectionString(connectionString string, token string) (string, error
 	endIndex += startIndex
 
 	return connectionString[startIndex:endIndex], nil
+}
+
+func addModuleInfo(options *azappconfig.ClientOptions) *azappconfig.ClientOptions {
+	if options == nil {
+		options = &azappconfig.ClientOptions{}
+	}
+
+	options.Telemetry = policy.TelemetryOptions{
+		ApplicationID: fmt.Sprintf("%s/%s", moduleName, moduleVersion),
+	}
+
+	return options
 }
