@@ -26,28 +26,6 @@ func verifyOptions(options *Options) error {
 		return err
 	}
 
-	if options.RefreshOptions.Enabled {
-		if options.RefreshOptions.Interval > 0 &&
-			options.RefreshOptions.Interval < minimalRefreshInterval {
-			return fmt.Errorf("key value refresh interval cannot be less than %s", minimalRefreshInterval)
-		}
-
-		for _, watchedSetting := range options.RefreshOptions.WatchedSettings {
-			if watchedSetting.Key == "" {
-				return fmt.Errorf("watched setting key cannot be empty")
-			}
-
-			if strings.Contains(watchedSetting.Key, "*") || strings.Contains(watchedSetting.Key, ",") {
-				return fmt.Errorf("watched setting key cannot contain '*' or ','")
-			}
-
-			if watchedSetting.Label != "" &&
-				(strings.Contains(watchedSetting.Label, "*") || strings.Contains(watchedSetting.Label, ",")) {
-				return fmt.Errorf("watched setting label cannot contain '*' or ','")
-			}
-		}
-	}
-
 	return nil
 }
 

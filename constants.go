@@ -3,14 +3,6 @@
 
 package azureappconfiguration
 
-import "time"
-
-// Refresh interval constants
-const (
-	// minimalRefreshInterval is the minimum allowed refresh interval for key-value settings
-	minimalRefreshInterval time.Duration = time.Second
-)
-
 // Configuration client constants
 const (
 	endpointKey string = "Endpoint"

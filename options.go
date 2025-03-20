@@ -6,7 +6,6 @@ package azureappconfiguration
 import (
 	"context"
 	"net/url"
-	"time"
 
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore"
 	"github.com/Azure/azure-sdk-for-go/sdk/data/azappconfig"
@@ -18,7 +17,6 @@ type Options struct {
 	// Trims the provided prefixes from the keys of all key-values retrieved from Azure App Configuration.
 	TrimKeyPrefixes []string
 	Selectors       []Selector
-	RefreshOptions  KeyValueRefreshOptions
 	KeyVaultOptions KeyVaultOptions
 	ClientOptions   *azappconfig.ClientOptions
 }
@@ -35,26 +33,6 @@ type AuthenticationOptions struct {
 type Selector struct {
 	KeyFilter   string
 	LabelFilter string
-}
-
-// KeyValueRefreshOptions contains optional parameters to configure the behavior of key-value settings refresh
-type KeyValueRefreshOptions struct {
-	// WatchedSettings specifies the key-value settings to watch for changes
-	// If not provided, all selected key-value settings will be watched
-	WatchedSettings []WatchedSetting
-
-	// Interval specifies the minimum time interval between consecutive refresh operations for the watched settings
-	// Must be greater than 1 second. If not provided, the default interval 30 seconds will be used
-	Interval time.Duration
-
-	// Enabled specifies whether the provider should automatically refresh when the configuration is changed.
-	Enabled bool
-}
-
-// WatchedSetting specifies the key and label of a key-value setting to watch for changes
-type WatchedSetting struct {
-	Key   string
-	Label string
 }
 
 // SecretResolver is an interface to resolve secret from key vault reference

@@ -5,7 +5,6 @@ package azureappconfiguration
 
 import (
 	"testing"
-	"time"
 
 	"github.com/stretchr/testify/assert"
 )
@@ -31,16 +30,6 @@ func TestVerifyOptions(t *testing.T) {
 			expectedError: false,
 		},
 		{
-			name: "invalid refresh interval",
-			options: &Options{
-				RefreshOptions: KeyValueRefreshOptions{
-					Enabled:  true,
-					Interval: time.Millisecond * 500, // Less than minimum (1 second)
-				},
-			},
-			expectedError: true,
-		},
-		{
 			name: "empty key filter in selector",
 			options: &Options{
 				Selectors: []Selector{
@@ -54,30 +43,6 @@ func TestVerifyOptions(t *testing.T) {
 			options: &Options{
 				Selectors: []Selector{
 					{KeyFilter: "app*", LabelFilter: "prod*"},
-				},
-			},
-			expectedError: true,
-		},
-		{
-			name: "invalid watched setting key",
-			options: &Options{
-				RefreshOptions: KeyValueRefreshOptions{
-					Enabled: true,
-					WatchedSettings: []WatchedSetting{
-						{Key: "app*", Label: "prod"},
-					},
-				},
-			},
-			expectedError: true,
-		},
-		{
-			name: "invalid watched setting label",
-			options: &Options{
-				RefreshOptions: KeyValueRefreshOptions{
-					Enabled: true,
-					WatchedSettings: []WatchedSetting{
-						{Key: "app", Label: "prod*"},
-					},
 				},
 			},
 			expectedError: true,
