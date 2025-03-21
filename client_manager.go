@@ -117,8 +117,10 @@ func setTelemetry(options *azappconfig.ClientOptions) *azappconfig.ClientOptions
 		options = &azappconfig.ClientOptions{}
 	}
 
-	options.Telemetry = policy.TelemetryOptions{
-		ApplicationID: fmt.Sprintf("%s/%s", moduleName, moduleVersion),
+	if options.Telemetry.Disabled == false && options.Telemetry.ApplicationID == "" {
+		options.Telemetry = policy.TelemetryOptions{
+			ApplicationID: fmt.Sprintf("%s/%s", moduleName, moduleVersion),
+		}
 	}
 
 	return options
