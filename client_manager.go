@@ -31,7 +31,7 @@ type configurationClientWrapper struct {
 // newConfigurationClientManager creates a new configuration client manager
 func newConfigurationClientManager(authOptions AuthenticationOptions, clientOptions *azappconfig.ClientOptions) (*configurationClientManager, error) {
 	manager := &configurationClientManager{
-		clientOptions: addModuleInfo(clientOptions),
+		clientOptions: setTelemetry(clientOptions),
 	}
 
 	// Create client based on authentication options
@@ -112,7 +112,7 @@ func parseConnectionString(connectionString string, token string) (string, error
 	return connectionString[startIndex:endIndex], nil
 }
 
-func addModuleInfo(options *azappconfig.ClientOptions) *azappconfig.ClientOptions {
+func setTelemetry(options *azappconfig.ClientOptions) *azappconfig.ClientOptions {
 	if options == nil {
 		options = &azappconfig.ClientOptions{}
 	}
