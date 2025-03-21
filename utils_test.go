@@ -204,11 +204,6 @@ func TestVerifySeparator(t *testing.T) {
 		expectedError bool
 	}{
 		{
-			name:          "empty separator (defaults to .)",
-			separator:     "",
-			expectedError: false,
-		},
-		{
 			name:          "dot separator",
 			separator:     ".",
 			expectedError: false,

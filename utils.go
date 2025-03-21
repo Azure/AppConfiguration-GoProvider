@@ -72,13 +72,8 @@ func reverse(arr []Selector) {
 }
 
 func verifySeparator(separator string) error {
-	if separator == "" {
-		separator = defaultSeparator
-	}
-
-	validSeparators := []string{".", ",", ";", "-", "_", "__", "/", ":"}
-
 	isValid := false
+	validSeparators := []string{".", ",", ";", "-", "_", "__", "/", ":"}
 	for _, valid := range validSeparators {
 		if separator == valid {
 			isValid = true
@@ -89,5 +84,6 @@ func verifySeparator(separator string) error {
 	if !isValid {
 		return fmt.Errorf("invalid separator '%s'. Supported values: %s", separator, strings.Join(validSeparators, ", "))
 	}
+
 	return nil
 }

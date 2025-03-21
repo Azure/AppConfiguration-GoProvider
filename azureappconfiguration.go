@@ -12,7 +12,9 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/Azure/AppConfiguration-GoProvider/azureappconfiguration/internal/tree"
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore"
+	decoder "github.com/go-viper/mapstructure/v2"
 	"golang.org/x/sync/errgroup"
 )
 
@@ -57,6 +59,51 @@ func Load(ctx context.Context, authentication AuthenticationOptions, options *Op
 	}
 
 	return azappcfg, nil
+}
+
+func (azappcfg *AzureAppConfiguration) Unmarshal(v any, options *ConstructionOptions) error {
+	if options == nil || options.Separator == "" {
+		options = &ConstructionOptions{
+			Separator: defaultSeparator,
+		}
+	} else {
+		err := verifySeparator(options.Separator)
+		if err != nil {
+			return err
+		}
+	}
+
+	config := &decoder.DecoderConfig{
+		Result:           v,
+		WeaklyTypedInput: true,
+		TagName:          "json",
+		DecodeHook: decoder.ComposeDecodeHookFunc(
+			decoder.StringToTimeDurationHookFunc(),
+			decoder.StringToSliceHookFunc(","),
+		),
+	}
+
+	decoder, err := decoder.NewDecoder(config)
+	if err != nil {
+		return err
+	}
+
+	return decoder.Decode(azappcfg.constructHierarchicalMap(options.Separator))
+}
+
+func (azappcfg *AzureAppConfiguration) GetBytes(options *ConstructionOptions) ([]byte, error) {
+	if options == nil || options.Separator == "" {
+		options = &ConstructionOptions{
+			Separator: defaultSeparator,
+		}
+	} else {
+		err := verifySeparator(options.Separator)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	return json.Marshal(azappcfg.constructHierarchicalMap(options.Separator))
 }
 
 func (azappcfg *AzureAppConfiguration) load(ctx context.Context) error {
@@ -199,4 +246,14 @@ func deduplicateSelectors(selectors []Selector) []Selector {
 	// Reverse the result to maintain the original order
 	reverse(result)
 	return result
+}
+
+// constructHierarchicalMap converts a flat map with delimited keys to a hierarchical structure
+func (azappcfg *AzureAppConfiguration) constructHierarchicalMap(separator string) map[string]any {
+	tree := &tree.Tree{}
+	for k, v := range azappcfg.keyValues {
+		tree.Insert(strings.Split(k, separator), v)
+	}
+
+	return tree.Build()
 }

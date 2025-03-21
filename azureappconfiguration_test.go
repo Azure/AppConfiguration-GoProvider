@@ -395,6 +395,239 @@ func TestIsJsonContentType(t *testing.T) {
 	}
 }
 
+func TestUnmarshal_BasicTypes(t *testing.T) {
+	// Define a simple struct with basic types
+	type Config struct {
+		String  string
+		Int     int
+		Bool    bool
+		Float   float64
+		Slice   []string
+		Timeout time.Duration
+	}
+
+	// Setup test data
+	azappcfg := &AzureAppConfiguration{
+		keyValues: map[string]interface{}{
+			"String":  "hello world",
+			"Int":     "42", // Test string to int conversion
+			"Bool":    "true",
+			"Float":   3.14,
+			"Slice":   "item1,item2,item3",
+			"Timeout": "5s",
+		},
+	}
+
+	// Unmarshal into the struct
+	var config Config
+	err := azappcfg.Unmarshal(&config, nil)
+
+	// Verify results
+	assert.NoError(t, err)
+	assert.Equal(t, "hello world", config.String)
+	assert.Equal(t, 42, config.Int)
+	assert.Equal(t, true, config.Bool)
+	assert.Equal(t, 3.14, config.Float)
+	assert.Equal(t, []string{"item1", "item2", "item3"}, config.Slice)
+	assert.Equal(t, 5*time.Second, config.Timeout)
+}
+
+func TestUnmarshal_NestedStructs(t *testing.T) {
+	// Define nested structs
+	type Database struct {
+		Host     string
+		Port     int
+		Username string
+		Password string
+		SSL      bool
+	}
+
+	type Cache struct {
+		TTL       time.Duration
+		MaxSize   int
+		Endpoints []string
+	}
+
+	type Config struct {
+		AppName  string
+		Version  string
+		Database Database
+		Cache    Cache
+		Debug    bool
+	}
+
+	// Setup test data
+	azappcfg := &AzureAppConfiguration{
+		keyValues: map[string]interface{}{
+			"AppName":           "MyApp",
+			"Version":           "1.0.0",
+			"Database.Host":     "localhost",
+			"Database.Port":     "5432",
+			"Database.Username": "admin",
+			"Database.Password": "secret",
+			"Database.SSL":      true,
+			"Cache.TTL":         "30s",
+			"Cache.MaxSize":     1024,
+			"Cache.Endpoints":   "endpoint1.com,endpoint2.com",
+			"Debug":             "true",
+		},
+	}
+
+	// Unmarshal into the struct
+	var config Config
+	err := azappcfg.Unmarshal(&config, nil)
+
+	// Verify results
+	assert.NoError(t, err)
+	assert.Equal(t, "MyApp", config.AppName)
+	assert.Equal(t, "1.0.0", config.Version)
+
+	// Database checks
+	assert.Equal(t, "localhost", config.Database.Host)
+	assert.Equal(t, 5432, config.Database.Port)
+	assert.Equal(t, "admin", config.Database.Username)
+	assert.Equal(t, "secret", config.Database.Password)
+	assert.Equal(t, true, config.Database.SSL)
+
+	// Cache checks
+	assert.Equal(t, 30*time.Second, config.Cache.TTL)
+	assert.Equal(t, 1024, config.Cache.MaxSize)
+	assert.Equal(t, []string{"endpoint1.com", "endpoint2.com"}, config.Cache.Endpoints)
+
+	// Debug check
+	assert.Equal(t, true, config.Debug)
+}
+
+func TestUnmarshal_CustomTags(t *testing.T) {
+	// Define a struct with custom field tags
+	type Config struct {
+		AppName      string `json:"application_name"`
+		MaxConnCount int    `json:"connection_limit"`
+		Endpoints    struct {
+			Primary   string `json:"main_endpoint"`
+			Secondary string `json:"backup_endpoint"`
+		} `json:"endpoints"`
+		FeatureEnabled bool     `json:"is_feature_enabled"`
+		AllowedIPs     []string `json:"allowed_ip_addresses"`
+	}
+
+	// Setup test data
+	azappcfg := &AzureAppConfiguration{
+		keyValues: map[string]interface{}{
+			"application_name":          "CustomTagApp",
+			"connection_limit":          100,
+			"endpoints.main_endpoint":   "https://primary.example.com",
+			"endpoints.backup_endpoint": "https://secondary.example.com",
+			"is_feature_enabled":        "true",
+			"allowed_ip_addresses":      "192.168.1.1,10.0.0.1,172.16.0.1",
+		},
+	}
+
+	// Unmarshal into the struct
+	var config Config
+	err := azappcfg.Unmarshal(&config, nil)
+
+	// Verify results
+	assert.NoError(t, err)
+	assert.Equal(t, "CustomTagApp", config.AppName)
+	assert.Equal(t, 100, config.MaxConnCount)
+	assert.Equal(t, "https://primary.example.com", config.Endpoints.Primary)
+	assert.Equal(t, "https://secondary.example.com", config.Endpoints.Secondary)
+	assert.Equal(t, true, config.FeatureEnabled)
+	assert.Equal(t, []string{"192.168.1.1", "10.0.0.1", "172.16.0.1"}, config.AllowedIPs)
+}
+
+func TestUnmarshal_EmptyValues(t *testing.T) {
+	// Define a struct with default values
+	type Config struct {
+		String      string
+		StringPtr   *string
+		Int         int
+		IntPtr      *int
+		Bool        bool
+		BoolPtr     *bool
+		StringSlice []string
+	}
+
+	// Setup test data with some empty values
+	defaultString := "default"
+	defaultInt := 42
+	defaultBool := true
+
+	config := Config{
+		String:      defaultString,
+		StringPtr:   &defaultString,
+		Int:         defaultInt,
+		IntPtr:      &defaultInt,
+		Bool:        defaultBool,
+		BoolPtr:     &defaultBool,
+		StringSlice: []string{"default1", "default2"},
+	}
+
+	azappcfg := &AzureAppConfiguration{
+		keyValues: map[string]interface{}{
+			// Intentionally empty map to test empty values
+		},
+	}
+
+	// Unmarshal into the struct with existing default values
+	err := azappcfg.Unmarshal(&config, nil)
+
+	// Verify results - default values should remain unchanged
+	assert.NoError(t, err)
+	assert.Equal(t, defaultString, config.String)
+	assert.Equal(t, &defaultString, config.StringPtr)
+	assert.Equal(t, defaultInt, config.Int)
+	assert.Equal(t, &defaultInt, config.IntPtr)
+	assert.Equal(t, defaultBool, config.Bool)
+	assert.Equal(t, &defaultBool, config.BoolPtr)
+	assert.Equal(t, []string{"default1", "default2"}, config.StringSlice)
+}
+
+func TestUnmarshal_EmptyValues_2(t *testing.T) {
+	// Define a struct with default values
+	type Config struct {
+		String      string
+		StringPtr   *string
+		Int         int
+		IntPtr      *int
+		Bool        bool
+		BoolPtr     *bool
+		StringSlice []string
+	}
+
+	// Setup test data with some empty values
+	defaultString := "default"
+	defaultInt := 42
+	defaultBool := true
+
+	// Partially initialize config
+	config := Config{
+		StringPtr: &defaultString,
+		IntPtr:    &defaultInt,
+		BoolPtr:   &defaultBool,
+	}
+
+	azappcfg := &AzureAppConfiguration{
+		keyValues: map[string]interface{}{
+			// Intentionally empty map to test empty values
+		},
+	}
+
+	// Unmarshal into the struct with existing default values
+	err := azappcfg.Unmarshal(&config, nil)
+
+	// Verify results - default values should remain unchanged
+	assert.NoError(t, err)
+	assert.Equal(t, "", config.String)
+	assert.Equal(t, &defaultString, config.StringPtr)
+	assert.Equal(t, 0, config.Int)
+	assert.Equal(t, &defaultInt, config.IntPtr)
+	assert.Equal(t, false, config.Bool)
+	assert.Equal(t, &defaultBool, config.BoolPtr)
+	assert.Nil(t, config.StringSlice)
+}
+
 func toPtr(s string) *string {
 	return &s
 }
