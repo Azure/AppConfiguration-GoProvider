@@ -71,9 +71,6 @@ func main() {
 		log.Fatalf("Error loading configuration: %s", err)
 	}
 
-	// Initialize Gin router
-	r := gin.Default()
-
 	if config.App.DebugMode {
 		// Set Gin to debug mode
 		gin.SetMode(gin.DebugMode)
@@ -83,6 +80,9 @@ func main() {
 		gin.SetMode(gin.ReleaseMode)
 		log.Println("Running in RELEASE mode")
 	}
+
+	// Initialize Gin router
+	r := gin.Default()
 
 	// Load HTML templates
 	r.LoadHTMLGlob("templates/*")
