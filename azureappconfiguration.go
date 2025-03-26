@@ -17,6 +17,8 @@ import (
 	"golang.org/x/sync/errgroup"
 )
 
+// AzureAppConfiguration is a configuration provider that retrieves and manages
+// settings from Azure App Configuration service
 type AzureAppConfiguration struct {
 	keyValues    map[string]any
 	kvSelectors  []Selector
@@ -26,6 +28,40 @@ type AzureAppConfiguration struct {
 	resolver      *keyVaultReferenceResolver
 }
 
+// Load initializes and returns an AzureAppConfiguration instance populated with configuration data
+// retrieved from Azure App Configuration service.
+//
+// Parameters:
+//   - ctx: Context for controlling request lifetime and cancellation.
+//   - authentication: AuthenticationOptions containing credentials or connection details required to access Azure App Configuration.
+//   - options: Optional configuration settings to customize the loading behavior. If nil, default settings are applied.
+//
+// Returns:
+//   - A pointer to an AzureAppConfiguration instance containing loaded configuration data.
+//   - An error if authentication fails, client initialization encounters issues, or configuration loading is unsuccessful.
+//
+// Example usage:
+//
+//	authOptions := azureappconfiguration.AuthenticationOptions{
+//	    ConnectionString: os.Getenv("AZURE_APPCONFIG_CONNECTION_STRING"),
+//	}
+//
+//	options := &azureappconfiguration.Options{
+//	    Selectors: []azureappconfiguration.Selector{
+//	        {
+//	            KeyFilter: "AppName:*",  // Load only keys starting with "AppName:"
+//	        },
+//	    },
+//	    TrimKeyPrefixes: []string{"AppName:"},  // Remove "AppName:" prefix from keys
+//	}
+//
+//	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+//	defer cancel()
+//
+//	provider, err := azureappconfiguration.Load(ctx, authOptions, options)
+//	if err != nil {
+//	    log.Fatalf("Failed to load configuration: %v", err)
+//	}
 func Load(ctx context.Context, authentication AuthenticationOptions, options *Options) (*AzureAppConfiguration, error) {
 	if err := verifyAuthenticationOptions(authentication); err != nil {
 		return nil, err
@@ -58,6 +94,42 @@ func Load(ctx context.Context, authentication AuthenticationOptions, options *Op
 	return azappcfg, nil
 }
 
+// Unmarshal converts the configuration data from Azure App Configuration into a struct or other Go type.
+// It uses the key-value pairs from the configuration, constructs a hierarchical structure based on the
+// separator in the keys, and then decodes this structure into the provided target.
+//
+// Parameters:
+//   - v: A pointer to the target variable where configuration will be unmarshaled.
+//        This must be a pointer to a struct or a map. When using structs, the method
+//        supports struct fields with `json` tags to control field mapping.
+//   - options: Optional ConstructionOptions to customize unmarshaling behavior, such as 
+//        specifying a custom separator for hierarchical keys. If nil, default options are used.
+//
+// Returns:
+//   - An error if the configuration cannot be unmarshaled into the target type.
+//
+// Example usage:
+//
+//	type Config struct {
+//	    Database struct {
+//	        Host     string `json:"host"`
+//	        Port     int    `json:"port"`
+//	        Username string `json:"username"`
+//	        Password string `json:"password"`
+//	    } `json:"database"`
+//	    Timeout int    `json:"timeout"`
+//	    Debug   bool   `json:"debug"`
+//	}
+//
+//	var config Config
+//	err := provider.Unmarshal(&config, &azureappconfiguration.ConstructionOptions{
+//	    Separator: ":",  // Use ":" as the separator in hierarchical keys
+//	})
+//	if err != nil {
+//	    log.Fatalf("Failed to unmarshal configuration: %v", err)
+//	}
+//
+//	fmt.Printf("Database host: %s, port: %d\n", config.Database.Host, config.Database.Port)
 func (azappcfg *AzureAppConfiguration) Unmarshal(v any, options *ConstructionOptions) error {
 	if options == nil || options.Separator == "" {
 		options = &ConstructionOptions{
@@ -88,6 +160,41 @@ func (azappcfg *AzureAppConfiguration) Unmarshal(v any, options *ConstructionOpt
 	return decoder.Decode(azappcfg.constructHierarchicalMap(options.Separator))
 }
 
+// GetBytes serializes the configuration data from Azure App Configuration into a JSON byte array.
+// This method is particularly useful for developers migrating from other configuration systems to 
+// Azure App Configuration, as it allows them to feed the configuration data into existing 
+// solutions with minimal code changes.
+//
+// Parameters:
+//   - options: Optional ConstructionOptions to customize serialization behavior, such as
+//        specifying a custom separator for hierarchical keys. If nil, default options are used.
+//
+// Returns:
+//   - A JSON byte array representing the hierarchical configuration structure.
+//   - An error if the configuration cannot be marshaled into JSON.
+//
+// Example usage:
+//
+//	// Get configuration as JSON bytes
+//	jsonBytes, err := provider.GetBytes(&azureappconfiguration.ConstructionOptions{
+//	    Separator: ":",  // Use ":" as the separator in hierarchical keys
+//	})
+//	if err != nil {
+//	    log.Fatalf("Failed to get configuration as bytes: %v", err)
+//	}
+//
+//	// Use with existing configuration systems
+//	// Example with Viper:
+//	v := viper.New()
+//	if err := v.ReadConfig(bytes.NewBuffer(jsonBytes)); err != nil {
+//	    log.Fatalf("Failed to read configuration: %v", err)
+//	}
+//
+//	// Example with encoding/json:
+//	var config map[string]interface{}
+//	if err := json.Unmarshal(jsonBytes, &config); err != nil {
+//	    log.Fatalf("Failed to parse configuration: %v", err)
+//	}
 func (azappcfg *AzureAppConfiguration) GetBytes(options *ConstructionOptions) ([]byte, error) {
 	if options == nil || options.Separator == "" {
 		options = &ConstructionOptions{
