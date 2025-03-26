@@ -29,12 +29,25 @@ type App struct {
 
 ### Prerequisites
 
-1. An Azure App Configuration store with the following keys:
-   - `Config:Message` - A string message to display on the home page
-   - `Config:App:Name` - A string for the application name
-   - `Config:App:DebugMode` - A boolean to control debug mode
+You need [an Azure subscription](https://azure.microsoft.com/free/) and the following Azure resources to run the examples:
 
-2. Set the connection string as an environment variable:
+- [Azure App Configuration store](https://learn.microsoft.com/en-us/azure/azure-app-configuration/quickstart-azure-app-configuration-create?tabs=azure-portal)
+
+The examples retrieve credentials to access your App Configuration store from environment variables.
+
+### Add key-values
+
+Add the following key-values to the App Configuration store and leave **Label** and **Content Type** with their default values:
+
+| Key                    | Value              |
+|------------------------|--------------------|
+| *Config:Message*       | *Hello World!*     |
+| *Config:App:Name*      | *Gin Web App*      |
+| *Config:App:DebugMode* | *true*             |
+
+### Setup
+
+Set the connection string as an environment variable:
 
 ```bash
 # Windows

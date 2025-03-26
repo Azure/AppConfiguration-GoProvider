@@ -7,7 +7,7 @@ This example demonstrates how to use Azure App Configuration in a console/comman
 This simple console application:
 
 1. Loads configuration values from Azure App Configuration
-2. Displays them to the user
+2. Binds them to target configuration struct
 
 
 ## Configuration Structure
@@ -30,12 +30,26 @@ type Font struct {
 
 ### Prerequisites
 
-1. An Azure App Configuration store with the following keys:
-   - `Config:Message` - A string value
-   - `Config:Font:Color` - A string value (e.g., "blue", "red")
-   - `Config:Font:Size` - An integer value
+You need [an Azure subscription](https://azure.microsoft.com/free/) and the following Azure resources to run the examples:
 
-2. Set the connection string as an environment variable:
+- [Azure App Configuration store](https://learn.microsoft.com/en-us/azure/azure-app-configuration/quickstart-azure-app-configuration-create?tabs=azure-portal)
+
+The examples retrieve credentials to access your App Configuration store from environment variables.
+Alternatively, edit the source code to include the appropriate credentials.
+
+### Add key-values
+
+Add the following key-values to the App Configuration store and leave **Label** and **Content Type** with their default values. For more information about how to add key-values to a store using the Azure portal or the CLI, go to [Create a key-value](./quickstart-azure-app-configuration-create.md#create-a-key-value).
+
+| Key                    | Value          |
+|------------------------|----------------|
+| *Config:Message*       | *Hello World!* |
+| *Config:Font:Color*    | *blue*         |
+| *Config:Font:Size*     | *12*           |
+
+### Setup
+
+Set the connection string as an environment variable:
 
 ```bash
 # Windows
