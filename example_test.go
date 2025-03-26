@@ -1,3 +1,9 @@
+//go:build examples
+// +build examples
+
+// Copyright (c) Microsoft Corporation.
+// Licensed under the MIT License.
+
 package azureappconfiguration_test
 
 import (
