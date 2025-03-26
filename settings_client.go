@@ -10,16 +10,21 @@ import (
 	"github.com/Azure/azure-sdk-for-go/sdk/data/azappconfig"
 )
 
+type settingsResponse struct {
+	settings []azappconfig.Setting
+	// TODO: pageETags
+}
+
 type selectorSettingsClient struct {
 	selectors []Selector
 	client    *azappconfig.Client
 }
 
 type settingsClient interface {
-	getSettings(ctx context.Context) ([]azappconfig.Setting, error)
+	getSettings(ctx context.Context) (*settingsResponse, error)
 }
 
-func (s *selectorSettingsClient) getSettings(ctx context.Context) ([]azappconfig.Setting, error) {
+func (s *selectorSettingsClient) getSettings(ctx context.Context) (*settingsResponse, error) {
 	settings := make([]azappconfig.Setting, 0)
 	for _, filter := range s.selectors {
 		selector := azappconfig.SettingSelector{
@@ -39,5 +44,7 @@ func (s *selectorSettingsClient) getSettings(ctx context.Context) ([]azappconfig
 		}
 	}
 
-	return settings, nil
+	return &settingsResponse{
+		settings: settings,
+	}, nil
 }

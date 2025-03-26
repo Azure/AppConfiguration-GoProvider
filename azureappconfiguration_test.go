@@ -19,9 +19,9 @@ type mockSettingsClient struct {
 	mock.Mock
 }
 
-func (m *mockSettingsClient) getSettings(ctx context.Context) ([]azappconfig.Setting, error) {
+func (m *mockSettingsClient) getSettings(ctx context.Context) (*settingsResponse, error) {
 	args := m.Called(ctx)
-	return args.Get(0).([]azappconfig.Setting), args.Error(1)
+	return args.Get(0).(*settingsResponse), args.Error(1)
 }
 
 func TestLoadKeyValues_Success(t *testing.T) {
@@ -29,9 +29,11 @@ func TestLoadKeyValues_Success(t *testing.T) {
 	mockClient := new(mockSettingsClient)
 	value1 := "value1"
 	value2 := `{"jsonKey": "jsonValue"}`
-	mockResponse := []azappconfig.Setting{
-		{Key: toPtr("key1"), Value: &value1, ContentType: toPtr("")},
-		{Key: toPtr("key2"), Value: &value2, ContentType: toPtr("application/json")},
+	mockResponse := &settingsResponse{
+		settings: []azappconfig.Setting{
+			{Key: toPtr("key1"), Value: &value1, ContentType: toPtr("")},
+			{Key: toPtr("key2"), Value: &value2, ContentType: toPtr("application/json")},
+		},
 	}
 
 	mockClient.On("getSettings", ctx).Return(mockResponse, nil)
@@ -56,9 +58,11 @@ func TestLoadKeyValues_WithKeyVaultReferences(t *testing.T) {
 	mockSecretResolver := new(mockSecretResolver)
 
 	kvReference := `{"uri":"https://myvault.vault.azure.net/secrets/mysecret"}`
-	mockResponse := []azappconfig.Setting{
-		{Key: toPtr("key1"), Value: toPtr("value1"), ContentType: toPtr("")},
-		{Key: toPtr("secret1"), Value: toPtr(kvReference), ContentType: toPtr(secretReferenceContentType)},
+	mockResponse := &settingsResponse{
+		settings: []azappconfig.Setting{
+			{Key: toPtr("key1"), Value: toPtr("value1"), ContentType: toPtr("")},
+			{Key: toPtr("secret1"), Value: toPtr(kvReference), ContentType: toPtr(secretReferenceContentType)},
+		},
 	}
 
 	mockSettingsClient.On("getSettings", ctx).Return(mockResponse, nil)
@@ -92,10 +96,12 @@ func TestLoadKeyValues_WithTrimPrefix(t *testing.T) {
 	value1 := "value1"
 	value2 := "value2"
 	value3 := "value3"
-	mockResponse := []azappconfig.Setting{
-		{Key: toPtr("prefix:key1"), Value: &value1, ContentType: toPtr("")},
-		{Key: toPtr("other:key2"), Value: &value2, ContentType: toPtr("")},
-		{Key: toPtr("key3"), Value: &value3, ContentType: toPtr("")},
+	mockResponse := &settingsResponse{
+		settings: []azappconfig.Setting{
+			{Key: toPtr("prefix:key1"), Value: &value1, ContentType: toPtr("")},
+			{Key: toPtr("other:key2"), Value: &value2, ContentType: toPtr("")},
+			{Key: toPtr("key3"), Value: &value3, ContentType: toPtr("")},
+		},
 	}
 
 	mockClient.On("getSettings", ctx).Return(mockResponse, nil)
@@ -120,8 +126,10 @@ func TestLoadKeyValues_EmptyKeyAfterTrim(t *testing.T) {
 	ctx := context.Background()
 	mockClient := new(mockSettingsClient)
 	value1 := "value1"
-	mockResponse := []azappconfig.Setting{
-		{Key: toPtr("prefix:"), Value: &value1, ContentType: toPtr("")},
+	mockResponse := &settingsResponse{
+		settings: []azappconfig.Setting{
+			{Key: toPtr("prefix:"), Value: &value1, ContentType: toPtr("")},
+		},
 	}
 
 	mockClient.On("getSettings", ctx).Return(mockResponse, nil)
@@ -145,9 +153,11 @@ func TestLoadKeyValues_InvalidJson(t *testing.T) {
 	mockClient := new(mockSettingsClient)
 	value1 := "value1"
 	value2 := `{"jsonKey": invalid}`
-	mockResponse := []azappconfig.Setting{
-		{Key: toPtr("key1"), Value: &value1, ContentType: toPtr("")},
-		{Key: toPtr("key2"), Value: &value2, ContentType: toPtr("application/json")},
+	mockResponse := &settingsResponse{
+		settings: []azappconfig.Setting{
+			{Key: toPtr("key1"), Value: &value1, ContentType: toPtr("")},
+			{Key: toPtr("key2"), Value: &value2, ContentType: toPtr("application/json")},
+		},
 	}
 
 	mockClient.On("getSettings", ctx).Return(mockResponse, nil)
@@ -656,11 +666,13 @@ func TestLoadKeyValues_WithConcurrentKeyVaultReferences(t *testing.T) {
 	kvReference3 := `{"uri":"https://vault2.vault.azure.net/secrets/secret3"}`
 
 	// Set up mock response with multiple key vault references
-	mockResponse := []azappconfig.Setting{
-		{Key: toPtr("standard"), Value: toPtr("value1"), ContentType: toPtr("")},
-		{Key: toPtr("secret1"), Value: toPtr(kvReference1), ContentType: toPtr(secretReferenceContentType)},
-		{Key: toPtr("secret2"), Value: toPtr(kvReference2), ContentType: toPtr(secretReferenceContentType)},
-		{Key: toPtr("secret3"), Value: toPtr(kvReference3), ContentType: toPtr(secretReferenceContentType)},
+	mockResponse := &settingsResponse{
+		settings: []azappconfig.Setting{
+			{Key: toPtr("standard"), Value: toPtr("value1"), ContentType: toPtr("")},
+			{Key: toPtr("secret1"), Value: toPtr(kvReference1), ContentType: toPtr(secretReferenceContentType)},
+			{Key: toPtr("secret2"), Value: toPtr(kvReference2), ContentType: toPtr(secretReferenceContentType)},
+			{Key: toPtr("secret3"), Value: toPtr(kvReference3), ContentType: toPtr(secretReferenceContentType)},
+		},
 	}
 
 	mockSettingsClient.On("getSettings", ctx).Return(mockResponse, nil)

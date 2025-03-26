@@ -118,9 +118,9 @@ func (azappcfg *AzureAppConfiguration) loadKeyValues(ctx context.Context, settin
 		return err
 	}
 
-	kvSettings := make(map[string]any, len(settingsResponse))
+	kvSettings := make(map[string]any, len(settingsResponse.settings))
 	keyVaultRefs := make(map[string]string)
-	for _, setting := range settingsResponse {
+	for _, setting := range settingsResponse.settings {
 		if setting.Key == nil {
 			continue
 		}
