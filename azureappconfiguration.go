@@ -13,16 +13,14 @@ import (
 	"sync"
 
 	"github.com/Azure/AppConfiguration-GoProvider/azureappconfiguration/internal/tree"
-	"github.com/Azure/azure-sdk-for-go/sdk/azcore"
 	decoder "github.com/go-viper/mapstructure/v2"
 	"golang.org/x/sync/errgroup"
 )
 
 type AzureAppConfiguration struct {
-	keyValues     map[string]any
-	keyValueETags map[Selector][]*azcore.ETag
-	kvSelectors   []Selector
-	trimPrefixes  []string
+	keyValues    map[string]any
+	kvSelectors  []Selector
+	trimPrefixes []string
 
 	clientManager *configurationClientManager
 	resolver      *keyVaultReferenceResolver
@@ -44,7 +42,6 @@ func Load(ctx context.Context, authentication AuthenticationOptions, options *Op
 
 	azappcfg := new(AzureAppConfiguration)
 	azappcfg.keyValues = make(map[string]any)
-	azappcfg.keyValueETags = make(map[Selector][]*azcore.ETag)
 	azappcfg.kvSelectors = deduplicateSelectors(options.Selectors)
 	azappcfg.trimPrefixes = options.TrimKeyPrefixes
 	azappcfg.clientManager = clientManager
@@ -186,7 +183,6 @@ func (azappcfg *AzureAppConfiguration) loadKeyValues(ctx context.Context, settin
 		return true
 	})
 
-	azappcfg.keyValueETags = settingsResponse.eTags
 	azappcfg.keyValues = kvSettings
 
 	return nil

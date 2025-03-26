@@ -10,7 +10,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Azure/azure-sdk-for-go/sdk/azcore"
 	"github.com/Azure/azure-sdk-for-go/sdk/data/azappconfig"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
@@ -35,7 +34,6 @@ func TestLoadKeyValues_Success(t *testing.T) {
 			{Key: toPtr("key1"), Value: &value1, ContentType: toPtr("")},
 			{Key: toPtr("key2"), Value: &value2, ContentType: toPtr("application/json")},
 		},
-		eTags: map[Selector][]*azcore.ETag{},
 	}
 
 	mockClient.On("getSettings", ctx).Return(mockResponse, nil)
@@ -65,7 +63,6 @@ func TestLoadKeyValues_WithKeyVaultReferences(t *testing.T) {
 			{Key: toPtr("key1"), Value: toPtr("value1"), ContentType: toPtr("")},
 			{Key: toPtr("secret1"), Value: toPtr(kvReference), ContentType: toPtr(secretReferenceContentType)},
 		},
-		eTags: map[Selector][]*azcore.ETag{},
 	}
 
 	mockSettingsClient.On("getSettings", ctx).Return(mockResponse, nil)
@@ -105,7 +102,6 @@ func TestLoadKeyValues_WithTrimPrefix(t *testing.T) {
 			{Key: toPtr("other:key2"), Value: &value2, ContentType: toPtr("")},
 			{Key: toPtr("key3"), Value: &value3, ContentType: toPtr("")},
 		},
-		eTags: map[Selector][]*azcore.ETag{},
 	}
 
 	mockClient.On("getSettings", ctx).Return(mockResponse, nil)
@@ -134,7 +130,6 @@ func TestLoadKeyValues_EmptyKeyAfterTrim(t *testing.T) {
 		settings: []azappconfig.Setting{
 			{Key: toPtr("prefix:"), Value: &value1, ContentType: toPtr("")},
 		},
-		eTags: map[Selector][]*azcore.ETag{},
 	}
 
 	mockClient.On("getSettings", ctx).Return(mockResponse, nil)
@@ -163,7 +158,6 @@ func TestLoadKeyValues_InvalidJson(t *testing.T) {
 			{Key: toPtr("key1"), Value: &value1, ContentType: toPtr("")},
 			{Key: toPtr("key2"), Value: &value2, ContentType: toPtr("application/json")},
 		},
-		eTags: map[Selector][]*azcore.ETag{},
 	}
 
 	mockClient.On("getSettings", ctx).Return(mockResponse, nil)
@@ -679,7 +673,6 @@ func TestLoadKeyValues_WithConcurrentKeyVaultReferences(t *testing.T) {
 			{Key: toPtr("secret2"), Value: toPtr(kvReference2), ContentType: toPtr(secretReferenceContentType)},
 			{Key: toPtr("secret3"), Value: toPtr(kvReference3), ContentType: toPtr(secretReferenceContentType)},
 		},
-		eTags: map[Selector][]*azcore.ETag{},
 	}
 
 	mockSettingsClient.On("getSettings", ctx).Return(mockResponse, nil)
