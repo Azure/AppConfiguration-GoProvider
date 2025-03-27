@@ -9,22 +9,6 @@ This web application:
 1. Loads configuration values from Azure App Configuration
 2. Configures the Gin web framework based on those values
 
-## Configuration Structure
-
-The example uses a nested configuration structure:
-
-```go
-type Config struct {
-	App     App
-	Message string
-}
-
-type App struct {
-	Name      string
-	DebugMode bool
-}
-```
-
 ## Running the Example
 
 ### Prerequisites
@@ -41,9 +25,9 @@ Add the following key-values to the App Configuration store and leave **Label** 
 
 | Key                    | Value              |
 |------------------------|--------------------|
-| *Config:Message*       | *Hello World!*     |
-| *Config:App:Name*      | *Gin Web App*      |
-| *Config:App:DebugMode* | *true*             |
+| *Config.Message*       | *Hello World!*     |
+| *Config.App.Name*      | *Gin Web App*      |
+| *Config.App.DebugMode* | *true*             |
 
 ### Setup
 

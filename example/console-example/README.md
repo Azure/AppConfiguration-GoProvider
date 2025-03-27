@@ -9,23 +9,6 @@ This simple console application:
 1. Loads configuration values from Azure App Configuration
 2. Binds them to target configuration struct
 
-
-## Configuration Structure
-
-The example uses a nested configuration structure:
-
-```go
-type Config struct {
-	Font    Font
-	Message string
-}
-
-type Font struct {
-	Color string
-	Size  int
-}
-```
-
 ## Running the Example
 
 ### Prerequisites
@@ -43,9 +26,9 @@ Add the following key-values to the App Configuration store and leave **Label** 
 
 | Key                    | Value          |
 |------------------------|----------------|
-| *Config:Message*       | *Hello World!* |
-| *Config:Font:Color*    | *blue*         |
-| *Config:Font:Size*     | *12*           |
+| *Config.Message*       | *Hello World!* |
+| *Config.Font.Color*    | *blue*         |
+| *Config.Font.Size*     | *12*           |
 
 ### Setup
 

@@ -30,11 +30,11 @@ func loadConfiguration() (Config, error) {
 	options := &azureappconfiguration.Options{
 		Selectors: []azureappconfiguration.Selector{
 			{
-				KeyFilter: "Config:*",
+				KeyFilter: "Config.*",
 			},
 		},
 		// Remove the prefix when mapping to struct fields
-		TrimKeyPrefixes: []string{"Config:"},
+		TrimKeyPrefixes: []string{"Config."},
 	}
 
 	authOptions := azureappconfiguration.AuthenticationOptions{
@@ -52,11 +52,7 @@ func loadConfiguration() (Config, error) {
 
 	// Parse configuration into struct
 	var config Config
-	constructOptions := azureappconfiguration.ConstructionOptions{
-		Separator: ":",
-	}
-
-	err = appCfgProvider.Unmarshal(&config, &constructOptions)
+	err = appCfgProvider.Unmarshal(&config, nil)
 	if err != nil {
 		return Config{}, err
 	}
