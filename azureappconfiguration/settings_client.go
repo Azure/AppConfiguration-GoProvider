@@ -84,7 +84,7 @@ func (c *watchedSettingClient) getSettings(ctx context.Context) (*settingsRespon
 				label = "no"
 			}
 			// If the watched setting is not found, not return error
-			log.Printf("Watched key '%s' with %s label does not exists", c.watchedSetting.Key, label)
+			log.Printf("Watched key '%s' with %s label does not exist", c.watchedSetting.Key, label)
 			return nil, nil
 		}
 

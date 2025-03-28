@@ -37,7 +37,7 @@ type AzureAppConfiguration struct {
 	trimPrefixes    []string
 	watchedSettings []WatchedSetting
 
-	sentinalETags    sync.Map
+	sentinelETags    sync.Map
 	kvRefreshTimer   refreshtimer.RefreshCondition
 	onRefreshSuccess []func()
 	tracingOptions tracing.Options
@@ -257,7 +257,7 @@ func (azappcfg *AzureAppConfiguration) loadWatchedSetting(ctx context.Context, s
 	}
 
 	if watchedSettingClient, ok := settingsClient.(*watchedSettingClient); ok {
-		azappcfg.sentinalETags.Store(watchedSettingClient.watchedSetting, eTag)
+		azappcfg.sentinelETags.Store(watchedSettingClient.watchedSetting, eTag)
 	}
 
 	return nil
@@ -418,7 +418,7 @@ func (azappcfg *AzureAppConfiguration) refreshKeyValues(ctx context.Context) (bo
 // for use with the watchedSettingClient
 func (azappcfg *AzureAppConfiguration) getSentinalETags() map[WatchedSetting]*azcore.ETag {
 	eTags := make(map[WatchedSetting]*azcore.ETag)
-	azappcfg.sentinalETags.Range(func(key, value interface{}) bool {
+	azappcfg.sentinelETags.Range(func(key, value interface{}) bool {
 		watchedSetting := key.(WatchedSetting)
 		eTag := value.(*azcore.ETag)
 		eTags[watchedSetting] = eTag
