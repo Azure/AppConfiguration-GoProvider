@@ -22,9 +22,9 @@ type Options struct {
 	// Selectors defines what key-values to load from Azure App Configuration
 	// Each selector combines a key filter and label filter
 	// If selectors are not provided, all key-values with no label are loaded by default.
-	Selectors []Selector
+	Selectors       []Selector
 	// RefreshOptions contains optional parameters to configure the behavior of key-value settings refresh
-	RefreshOptions KeyValueRefreshOptions
+	RefreshOptions  KeyValueRefreshOptions
 
 	// KeyVaultOptions configures how Key Vault references are resolved.
 	KeyVaultOptions KeyVaultOptions
