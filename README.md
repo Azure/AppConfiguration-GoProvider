@@ -4,9 +4,14 @@
 
 ## Installation
 
-```shell
+```bash
 go get github.com/Azure/AppConfiguration-GoProvider/azureappconfiguration
 ```
+
+## Examples
+
+- [Console Application](./example/console-example/): Simple CLI app using App Configuration
+- [Web Application](./example/gin-example/): Gin web app with App Configuration integration
 
 ## Contributing
 
