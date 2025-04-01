@@ -16,9 +16,22 @@ import (
 )
 
 func ExampleLoad() {
-	// Create authentication options
+	// Get the endpoint from environment variable
+	endpoint := os.Getenv("AZURE_APPCONFIG_ENDPOINT")
+	if endpoint == "" {
+		log.Fatal("AZURE_APPCONFIG_ENDPOINT environment variable not set")
+	}
+
+	// Create a credential using DefaultAzureCredential
+	credential, err := azidentity.NewDefaultAzureCredential(nil)
+	if err != nil {
+		log.Fatalf("Failed to create credential: %v", err)
+	}
+
+	// Set up authentication options with endpoint and credential
 	authOptions := azureappconfiguration.AuthenticationOptions{
-		ConnectionString: os.Getenv("AZURE_APPCONFIG_CONNECTION_STRING"),
+		Endpoint:   endpoint,
+		Credential: credential,
 	}
 
 	// Create a context
@@ -52,9 +65,7 @@ func ExampleAzureAppConfiguration_Unmarshal() {
 
 	// Unmarshal into the struct
 	var config ServerConfig
-	err := provider.Unmarshal(&config, &azureappconfiguration.ConstructionOptions{
-		Separator: ":", // Use ":" as the separator in hierarchical keys
-	})
+	err := provider.Unmarshal(&config, nil)
 	if err != nil {
 		log.Fatalf("Failed to unmarshal configuration: %v", err)
 	}
