@@ -1,6 +1,18 @@
 # Azure App Configuration - Go Provider
 
-[Azure App Configuration](https://docs.microsoft.com/en-us/azure/azure-app-configuration/overview) is a managed service that helps developers centralize their application configurations simply and securely. Go provider adds additional functionalities above the [Azure SDK for Go](https://pkg.go.dev/github.com/Azure/azure-sdk-for-go/sdk/data/azappconfig), which enables loading configuration from an Azure App Configuration store in a managed way. 
+[![PkgGoDev](https://pkg.go.dev/badge/github.com/Azure/AppConfiguration-GoProvider/azureappconfiguration)](https://pkg.go.dev/github.com/Azure/AppConfiguration-GoProvider/azureappconfiguration)
+
+## Overview
+
+Azure App Configuration Go Provider is a client library that simplifies using [Azure App Configuration](https://docs.microsoft.com/en-us/azure/azure-app-configuration/overview) in Go applications. It provides a high-level abstraction over the [Azure SDK for Go](https://pkg.go.dev/github.com/Azure/azure-sdk-for-go/sdk/data/azappconfig) that makes managing application settings easier and more intuitive.
+
+## Why Use the Go Provider?
+
+- **Simple, Strongly-Typed Configuration**: Easily map configuration values to Go structs with automatic type conversion
+- **Hierarchical Configuration**: Convert flat key-value pairs into nested configuration objects using customizable separators 
+- **Key Filtering and Prefix Management**: Selectively load configuration and remove prefixes for cleaner code
+- **Automatic Key Vault Integration**: Transparently resolve Key Vault references as part of the configuration loading process
+- **JSON Content Support**: Automatic parsing of JSON values into native Go types
 
 ## Installation
 
@@ -9,6 +21,8 @@ go get github.com/Azure/AppConfiguration-GoProvider/azureappconfiguration
 ```
 
 ## Examples
+
+The repository includes complete examples showing how to use the Go Provider in different scenarios:
 
 - [Console Application](./example/console-example/): Simple CLI app using App Configuration
 - [Web Application](./example/gin-example/): Gin web app with App Configuration integration
