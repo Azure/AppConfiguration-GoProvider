@@ -21,8 +21,8 @@ type Options struct {
 	ClientOptions   *azappconfig.ClientOptions
 }
 
-// AuthenticationOptions contains optional parameters to construct an Azure App Configuration client
-// ConnectionString or endpoint with credential must be be provided
+// AuthenticationOptions contains optional parameters to construct an Azure App Configuration client.
+// ConnectionString or endpoint with credential must be be provided.
 type AuthenticationOptions struct {
 	Credential       azcore.TokenCredential
 	Endpoint         string
@@ -35,25 +35,25 @@ type Selector struct {
 	LabelFilter string
 }
 
-// SecretResolver is an interface to resolve secret from key vault reference
+// SecretResolver is an interface to resolve secret from key vault reference.
 type SecretResolver interface {
 	// keyVaultReference: "https://{keyVaultName}.vault.azure.net/secrets/{secretName}/{secretVersion}"
 	ResolveSecret(ctx context.Context, keyVaultReference url.URL) (string, error)
 }
 
-// KeyVaultOptions contains optional parameters to configure the behavior of key vault reference resolution
+// KeyVaultOptions contains optional parameters to configure the behavior of key vault reference resolution.
 type KeyVaultOptions struct {
-	// Credential specifies the token credential used to authenticate to key vaults
+	// Credential specifies the token credential used to authenticate to key vaults.
 	Credential azcore.TokenCredential
 
-	// SecretResolver specifies the callback used to resolve key vault references
+	// SecretResolver specifies the callback used to resolve key vault references.
 	SecretResolver SecretResolver
 }
 
-// ConstructionOptions contains optional parameters for Unmarshal and GetBytes methods
+// ConstructionOptions contains optional parameters for Unmarshal and GetBytes methods.
 type ConstructionOptions struct {
-	// Separator is used to unmarshal configuration when the keys themselves contain the separator
+	// Separator is used to unmarshal configuration when the keys themselves contain the separator.
 	// Supported values: '.', ',', ';', '-', '_', '__', '/', ':'.
-	// If not provided, the default separator "." will be used
+	// If not provided, the default separator "." will be used.
 	Separator string
 }
