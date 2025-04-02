@@ -1,6 +1,15 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
+// Package azureappconfiguration provides a client for Azure App Configuration, enabling Go applications
+// to manage application settings with Microsoft's Azure App Configuration service.
+//
+// The azureappconfiguration package allows loading configuration data from Azure App Configuration in a structured way,
+// with support for automatic Key Vault reference resolution, hierarchical configuration construction,
+// and strongly typed configuration binding.
+//
+// For more information about Azure App Configuration, see:
+// https://learn.microsoft.com/en-us/azure/azure-app-configuration/
 package azureappconfiguration
 
 import (
