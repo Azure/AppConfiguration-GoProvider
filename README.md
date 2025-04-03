@@ -6,12 +6,11 @@
 
 Azure App Configuration Go Provider is a client library that simplifies using [Azure App Configuration](https://docs.microsoft.com/en-us/azure/azure-app-configuration/overview) in Go applications. It provides a high-level abstraction over the [Azure SDK for Go](https://pkg.go.dev/github.com/Azure/azure-sdk-for-go/sdk/data/azappconfig) that makes managing application settings easier and more intuitive.
 
-## Why Use the Go Provider?
+## Features
 
-- **Simple, Strongly-Typed Configuration**: Easily map configuration values to Go structs with automatic type conversion
-- **Hierarchical Configuration**: Convert flat key-value pairs into nested configuration objects using customizable separators 
+- **Simple, Strongly-Typed Configuration**: Easily bind hierarchical configuration to Go struct
 - **Key Filtering and Prefix Management**: Selectively load configuration and remove prefixes for cleaner code
-- **Automatic Key Vault Integration**: Transparently resolve Key Vault references as part of the configuration loading process
+- **Key Vault reference resolution**: Transparently resolve Key Vault references as part of the configuration loading process
 - **JSON Content Support**: Automatic parsing of JSON values into native Go types
 
 ## Installation
