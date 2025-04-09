@@ -4,13 +4,7 @@
 
 ## Overview
 
-Azure App Configuration Go Provider is a client library that simplifies using [Azure App Configuration](https://docs.microsoft.com/en-us/azure/azure-app-configuration/overview) in Go applications. It provides a high-level abstraction over the [Azure SDK for Go](https://pkg.go.dev/github.com/Azure/azure-sdk-for-go/sdk/data/azappconfig) that makes managing application settings easier and more intuitive.
-
-## Features
-
-- **Simple, Strongly-Typed Configuration**: Easily bind hierarchical configuration to Go struct
-- **Key Filtering and Prefix Management**: Selectively load configuration and remove prefixes for cleaner code
-- **Key Vault reference resolution**: Transparently resolve Key Vault references as part of the configuration loading process
+[Azure App Configuration](https://docs.microsoft.com/en-us/azure/azure-app-configuration/overview) provides centralized configuration storage and management, allowing users to update their configurations without the need to rebuild and redeploy their applications. The App Configuration provider for Go is built on top of the [Azure Go SDK](https://pkg.go.dev/github.com/Azure/azure-sdk-for-go/sdk/data/azappconfig) and is designed to simplify data consumption in App Configuration with rich features. Users can consume App Configuration key-values as strongly-typed structs with data binding or load them into popular third-party configuration libraries, minimizing code changes. The Go provider offers features such as configuration composition from multiple labels, key prefix trimming, automatic resolution of Key Vault references, feature flags, failover with geo-replication for enhanced reliability, and many more.
 
 ## Installation
 
@@ -20,8 +14,8 @@ go get github.com/Azure/AppConfiguration-GoProvider/azureappconfiguration
 
 ## Examples
 
-- [Console Application](./example/console-example/): Simple console app with Azure App Configuration integration
-- [Web Application](./example/gin-example/): Gin web app with Azure App Configuration integration
+- [Console Application](./example/console-example/): Load settings from Azure App Configuration and use in a console application.
+- [Web Application](./example/gin-example/): Load settings from Azure App Configuration and use in a Gin web application.
 
 ## Contributing
 
