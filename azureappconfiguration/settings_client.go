@@ -16,8 +16,8 @@ import (
 )
 
 type settingsResponse struct {
-	settings []azappconfig.Setting
-	// TODO: pageETags
+	settings     []azappconfig.Setting
+	watchedETags map[WatchedSetting]*azcore.ETag
 }
 
 type selectorSettingsClient struct {
@@ -27,9 +27,9 @@ type selectorSettingsClient struct {
 }
 
 type watchedSettingClient struct {
-	watchedSetting WatchedSetting
-	eTags          map[WatchedSetting]*azcore.ETag
-	client         *azappconfig.Client
+	watchedSettings []WatchedSetting
+	eTags           map[WatchedSetting]*azcore.ETag
+	client          *azappconfig.Client
 	tracingOptions tracing.Options
 }
 
@@ -75,24 +75,31 @@ func (c *watchedSettingClient) getSettings(ctx context.Context) (*settingsRespon
 		ctx = policy.WithHTTPHeader(ctx, tracing.CreateCorrelationContextHeader(ctx, c.tracingOptions))
 	}
 
-	response, err := c.client.GetSetting(ctx, c.watchedSetting.Key, &azappconfig.GetSettingOptions{Label: to.Ptr(c.watchedSetting.Label)})
-	if err != nil {
-		var respErr *azcore.ResponseError
-		if errors.As(err, &respErr) && respErr.StatusCode == 404 {
-			label := c.watchedSetting.Label
-			if label == "" || label == "\x00" { // NUL is escaped to \x00 in golang
-				label = "no"
+	settings := make([]azappconfig.Setting, 0, len(c.watchedSettings))
+	watchedETags := make(map[WatchedSetting]*azcore.ETag)
+	for _, watchedSetting := range c.watchedSettings {
+		response, err := c.client.GetSetting(ctx, watchedSetting.Key, &azappconfig.GetSettingOptions{Label: to.Ptr(watchedSetting.Label)})
+		if err != nil {
+			var respErr *azcore.ResponseError
+			if errors.As(err, &respErr) && respErr.StatusCode == 404 {
+				label := watchedSetting.Label
+				if label == "" || label == "\x00" { // NUL is escaped to \x00 in golang
+					label = "no"
+				}
+				// If the watched setting is not found, log and continue
+				log.Printf("Watched key '%s' with %s label does not exist", watchedSetting.Key, label)
+				continue
 			}
-			// If the watched setting is not found, not return error
-			log.Printf("Watched key '%s' with %s label does not exist", c.watchedSetting.Key, label)
-			return nil, nil
+			return nil, err
 		}
 
-		return nil, err
+		settings = append(settings, response.Setting)
+		watchedETags[watchedSetting] = response.Setting.ETag
 	}
 
 	return &settingsResponse{
-		settings: []azappconfig.Setting{response.Setting},
+		settings:     settings,
+		watchedETags: watchedETags,
 	}, nil
 }
 
