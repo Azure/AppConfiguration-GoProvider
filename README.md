@@ -20,8 +20,6 @@ go get github.com/Azure/AppConfiguration-GoProvider/azureappconfiguration
 
 ## Examples
 
-The repository includes complete examples showing how to use the Go Provider in different scenarios:
-
 - [Console Application](./example/console-example/): Simple console app with Azure App Configuration integration
 - [Web Application](./example/gin-example/): Gin web app with Azure App Configuration integration
 
