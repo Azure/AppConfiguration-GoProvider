@@ -1,6 +1,15 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
+// Package azureappconfiguration provides a client for Azure App Configuration, enabling Go applications
+// to manage application settings with Microsoft's Azure App Configuration service.
+//
+// The azureappconfiguration package allows loading configuration data from Azure App Configuration in a structured way,
+// with support for automatic Key Vault reference resolution, hierarchical configuration construction,
+// and strongly typed configuration binding.
+//
+// For more information about Azure App Configuration, see:
+// https://learn.microsoft.com/en-us/azure/azure-app-configuration/
 package azureappconfiguration
 
 import (
@@ -17,6 +26,7 @@ import (
 	"golang.org/x/sync/errgroup"
 )
 
+// An AzureAppConfiguration is a configuration provider that stores and manages settings sourced from Azure App Configuration.
 type AzureAppConfiguration struct {
 	keyValues    map[string]any
 	kvSelectors  []Selector
@@ -26,6 +36,17 @@ type AzureAppConfiguration struct {
 	resolver      *keyVaultReferenceResolver
 }
 
+// Load initializes a new AzureAppConfiguration instance and loads the configuration data from
+// Azure App Configuration service.
+//
+// Parameters:
+// - ctx: The context for the operation.
+// - authentication: Authentication options for connecting to the Azure App Configuration service
+// - options: Configuration options to customize behavior, such as key filters and prefix trimming
+//
+// Returns:
+// - A configured AzureAppConfiguration instance that provides access to the loaded configuration data
+// - An error if the operation fails, such as authentication errors or connectivity issues
 func Load(ctx context.Context, authentication AuthenticationOptions, options *Options) (*AzureAppConfiguration, error) {
 	if err := verifyAuthenticationOptions(authentication); err != nil {
 		return nil, err
@@ -58,6 +79,18 @@ func Load(ctx context.Context, authentication AuthenticationOptions, options *Op
 	return azappcfg, nil
 }
 
+// Unmarshal parses the configuration and stores the result in the value pointed to v. It builds a hierarchical configuration structure based on key separators. 
+// It supports converting values to appropriate target types.
+//
+// Fields in the target struct are matched with configuration keys using the field name by default.
+// For custom field mapping, use json struct tags.
+//
+// Parameters:
+// - v: A pointer to the struct to populate with configuration values
+// - options: Optional parameters (e,g, separator) for controlling the unmarshalling behavior
+//
+// Returns:
+// - An error if unmarshalling fails due to type conversion issues or invalid configuration
 func (azappcfg *AzureAppConfiguration) Unmarshal(v any, options *ConstructionOptions) error {
 	if options == nil || options.Separator == "" {
 		options = &ConstructionOptions{
@@ -88,6 +121,15 @@ func (azappcfg *AzureAppConfiguration) Unmarshal(v any, options *ConstructionOpt
 	return decoder.Decode(azappcfg.constructHierarchicalMap(options.Separator))
 }
 
+// GetBytes returns the configuration as a JSON byte array with hierarchical structure. 
+// This method is particularly useful for integrating with "encoding/json" package or third-party configuration packages like Viper or Koanf.
+//
+// Parameters:
+// - options: Optional parameters for controlling JSON construction, particularly the key separator
+//
+// Returns:
+// - A byte array containing the JSON representation of the configuration
+// - An error if JSON marshalling fails or if an invalid separator is specified
 func (azappcfg *AzureAppConfiguration) GetBytes(options *ConstructionOptions) ([]byte, error) {
 	if options == nil || options.Separator == "" {
 		options = &ConstructionOptions{
