@@ -1,14 +1,21 @@
-# Project
+# Azure App Configuration - Go Provider
 
-> This repo has been populated by an initial template to help get you started. Please
-> make sure to update the content to build a great experience for community-building.
+[![PkgGoDev](https://pkg.go.dev/badge/github.com/Azure/AppConfiguration-GoProvider/azureappconfiguration)](https://pkg.go.dev/github.com/Azure/AppConfiguration-GoProvider/azureappconfiguration)
 
-As the maintainer of this project, please make a few updates:
+## Overview
 
-- Improving this README.MD file to provide a great experience
-- Updating SUPPORT.MD with content about this project's support experience
-- Understanding the security reporting process in SECURITY.MD
-- Remove this section from the README
+[Azure App Configuration](https://docs.microsoft.com/azure/azure-app-configuration/overview) provides centralized configuration storage and management, allowing users to update their configurations without the need to rebuild and redeploy their applications. The App Configuration provider for Go is built on top of the [Azure Go SDK](https://pkg.go.dev/github.com/Azure/azure-sdk-for-go/sdk/data/azappconfig) and is designed to simplify data consumption in App Configuration with rich features. Users can consume App Configuration key-values as strongly-typed structs with data binding or load them into popular third-party configuration libraries, minimizing code changes. The Go provider offers features such as configuration composition from multiple labels, key prefix trimming, automatic resolution of Key Vault references, feature flags, failover with geo-replication for enhanced reliability, and many more.
+
+## Installation
+
+```bash
+go get github.com/Azure/AppConfiguration-GoProvider/azureappconfiguration
+```
+
+## Examples
+
+- [Console Application](./example/console-example/): Load settings from Azure App Configuration and use in a console application.
+- [Web Application](./example/gin-example/): Load settings from Azure App Configuration and use in a Gin web application.
 
 ## Contributing
 
