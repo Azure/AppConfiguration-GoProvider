@@ -54,7 +54,7 @@ jobs:
     - name: Check out code
       uses: actions/checkout@v3
       with:
-        sparse-checkout: './azureappconfiguration'
+        sparse-checkout: 'azureappconfiguration'
         sparse-checkout-cone-mode: false
 
     - name: Set up Go
@@ -76,7 +76,7 @@ jobs:
     - name: Check out code
       uses: actions/checkout@v3
       with:
-        sparse-checkout: './azureappconfiguration'
+        sparse-checkout: 'azureappconfiguration'
         sparse-checkout-cone-mode: false
 
     - name: Run Gosec Security Scanner
