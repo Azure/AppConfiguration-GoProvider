@@ -64,7 +64,7 @@ jobs:
       uses: golangci/golangci-lint-action@v3
       with:
         version: latest
-        args: --timeout=5m --path=./azureappconfiguration
+        args: --timeout=5m
 
   security-scan:
     name: Security Scan
@@ -76,4 +76,4 @@ jobs:
     - name: Run Gosec Security Scanner
       uses: securego/gosec@master
       with:
-        args: -exclude-dir=example ./azureappconfiguration/...
+        args: -exclude-dir=example
