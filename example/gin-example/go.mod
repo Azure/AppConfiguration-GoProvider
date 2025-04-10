@@ -7,7 +7,7 @@ require (
 	github.com/gin-gonic/gin v1.10.0
 )
 
-replace github.com/Azure/AppConfiguration-GoProvider/azureappconfiguration => ..\..\
+replace github.com/Azure/AppConfiguration-GoProvider/azureappconfiguration => ..\..\azureappconfiguration
 
 require (
 	github.com/Azure/azure-sdk-for-go/sdk/azcore v1.17.0 // indirect
