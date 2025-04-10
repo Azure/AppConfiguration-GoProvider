@@ -16,4 +16,4 @@ require (
 	golang.org/x/text v0.22.0 // indirect
 )
 
-replace github.com/Azure/AppConfiguration-GoProvider/azureappconfiguration => ..\..\
+replace github.com/Azure/AppConfiguration-GoProvider/azureappconfiguration => ..\..\azureappconfiguration
