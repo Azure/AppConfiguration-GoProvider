@@ -30,20 +30,16 @@ jobs:
         cache: true
 
     - name: Install dependencies
-      working-directory: ./azureappconfiguration
       run: go mod download
 
     - name: Build
-      working-directory: ./azureappconfiguration
       run: go build -v ./...
 
     - name: Test
-      working-directory: ./azureappconfiguration
       run: go test -race -v  ./...
       if: runner.os != 'Windows'
 
     - name: Test (without race detector)
-      working-directory: ./azureappconfiguration
       run: go test -v ./...
       if: runner.os == 'Windows'
 
@@ -64,7 +60,7 @@ jobs:
       uses: golangci/golangci-lint-action@v3
       with:
         version: latest
-        args: --timeout=5m ./azureappconfiguration/...
+        args: --timeout=5m
 
   security-scan:
     name: Security Scan
