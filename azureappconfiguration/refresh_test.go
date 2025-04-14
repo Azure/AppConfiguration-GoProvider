@@ -9,7 +9,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Azure/AppConfiguration-GoProvider/azureappconfiguration/internal/refreshtimer"
+	"github.com/Azure/AppConfiguration-GoProvider/azureappconfiguration/internal/refresh"
+	"github.com/Azure/azure-sdk-for-go/sdk/azcore"
+	"github.com/Azure/azure-sdk-for-go/sdk/data/azappconfig"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -83,26 +85,6 @@ func TestRefresh_NotTimeToRefresh(t *testing.T) {
 	assert.NoError(t, err)
 	// Timer should not be reset if we're not refreshing
 	assert.False(t, mockTimer.resetCalled)
-}
-
-func TestRefresh_NoChanges(t *testing.T) {
-	// Setup mock clients
-	mockTimer := &mockRefreshCondition{shouldRefresh: true}
-	mockEtags := &mockETagsClient{changed: false}
-
-	// Setup a provider
-	azappcfg := &AzureAppConfiguration{
-		kvRefreshTimer:         mockTimer,
-		watchedSettingsMonitor: mockEtags,
-	}
-
-	// Attempt to refresh
-	err := azappcfg.Refresh(context.Background())
-
-	// Verify no error and that refresh was attempted but no changes were detected
-	assert.NoError(t, err)
-	assert.Equal(t, 1, mockEtags.checkCallCount)
-	assert.True(t, mockTimer.resetCalled, "Timer should be reset even when no changes detected")
 }
 
 func TestRefreshEnabled_EmptyWatchedSettings(t *testing.T) {
@@ -224,32 +206,10 @@ func TestNormalizedWatchedSettings(t *testing.T) {
 	assert.Equal(t, defaultLabel, normalized[1].Label)
 }
 
-func TestRefresh_ErrorDuringETagCheck(t *testing.T) {
-	// Setup mocks
-	mockTimer := &mockRefreshCondition{shouldRefresh: true}
-	mockEtags := &mockETagsClient{
-		err: fmt.Errorf("etag check failed"),
-	}
-
-	// Setup provider
-	azappcfg := &AzureAppConfiguration{
-		kvRefreshTimer:         mockTimer,
-		watchedSettingsMonitor: mockEtags,
-	}
-
-	// Attempt to refresh
-	err := azappcfg.Refresh(context.Background())
-
-	// Verify error and that timer was not reset
-	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "etag check failed")
-	assert.False(t, mockTimer.resetCalled, "Timer should not be reset on error")
-}
-
 // Additional test to verify real RefreshTimer behavior
 func TestRealRefreshTimer(t *testing.T) {
 	// Create a real refresh timer with a short interval
-	timer := refreshtimer.New(100 * time.Millisecond)
+	timer := refresh.New(100 * time.Millisecond)
 
 	// Initially it should not be time to refresh
 	assert.False(t, timer.ShouldRefresh(), "New timer should not immediately indicate refresh needed")
@@ -261,4 +221,182 @@ func TestRealRefreshTimer(t *testing.T) {
 	// After reset, it should not be time to refresh again
 	timer.Reset()
 	assert.False(t, timer.ShouldRefresh(), "Timer should not indicate refresh needed right after reset")
+}
+
+// mockKvRefreshClient implements the settingsClient interface for testing
+type mockKvRefreshClient struct {
+	settings     []azappconfig.Setting
+	watchedETags map[WatchedSetting]*azcore.ETag
+	getCallCount int
+	err          error
+}
+
+func (m *mockKvRefreshClient) getSettings(ctx context.Context) (*settingsResponse, error) {
+	m.getCallCount++
+	if m.err != nil {
+		return nil, m.err
+	}
+	return &settingsResponse{
+		settings:     m.settings,
+		watchedETags: m.watchedETags,
+	}, nil
+}
+
+// TestRefreshKeyValues_NoChanges tests when no ETags change is detected
+func TestRefreshKeyValues_NoChanges(t *testing.T) {
+	// Setup mocks
+	mockTimer := &mockRefreshCondition{}
+	mockMonitor := &mockETagsClient{changed: false}
+	mockLoader := &mockKvRefreshClient{}
+	mockSentinels := &mockKvRefreshClient{}
+
+	mockClient := refreshClient{
+		loader:    mockLoader,
+		monitor:   mockMonitor,
+		sentinels: mockSentinels,
+	}
+
+	// Setup provider
+	azappcfg := &AzureAppConfiguration{
+		kvRefreshTimer: mockTimer,
+	}
+
+	// Call refreshKeyValues
+	refreshed, err := azappcfg.refreshKeyValues(context.Background(), mockClient)
+
+	// Verify results
+	assert.NoError(t, err)
+	assert.False(t, refreshed, "Should return false when no changes detected")
+	assert.Equal(t, 1, mockMonitor.checkCallCount, "Monitor should be called exactly once")
+	assert.Equal(t, 0, mockLoader.getCallCount, "Loader should not be called when no changes")
+	assert.Equal(t, 0, mockSentinels.getCallCount, "Sentinels should not be called when no changes")
+	assert.True(t, mockTimer.resetCalled, "Timer should be reset even when no changes")
+}
+
+// TestRefreshKeyValues_ChangesDetected tests when ETags changed and reload succeeds
+func TestRefreshKeyValues_ChangesDetected(t *testing.T) {
+	// Setup mocks for successful refresh
+	mockTimer := &mockRefreshCondition{}
+	mockMonitor := &mockETagsClient{changed: true}
+	mockLoader := &mockKvRefreshClient{}
+	mockSentinels := &mockKvRefreshClient{}
+
+	mockClient := refreshClient{
+		loader:    mockLoader,
+		monitor:   mockMonitor,
+		sentinels: mockSentinels,
+	}
+
+	// Setup provider with watchedSettings
+	azappcfg := &AzureAppConfiguration{
+		kvRefreshTimer:  mockTimer,
+		watchedSettings: []WatchedSetting{{Key: "test", Label: "test"}},
+	}
+
+	// Call refreshKeyValues
+	refreshed, err := azappcfg.refreshKeyValues(context.Background(), mockClient)
+
+	// Verify results
+	assert.NoError(t, err)
+	assert.True(t, refreshed, "Should return true when changes detected and applied")
+	assert.Equal(t, 1, mockMonitor.checkCallCount, "Monitor should be called exactly once")
+	assert.Equal(t, 1, mockLoader.getCallCount, "Loader should be called when changes detected")
+	assert.Equal(t, 1, mockSentinels.getCallCount, "Sentinels should be called when changes detected")
+	assert.True(t, mockTimer.resetCalled, "Timer should be reset after successful refresh")
+}
+
+// TestRefreshKeyValues_LoaderError tests when loader client returns an error
+func TestRefreshKeyValues_LoaderError(t *testing.T) {
+	// Setup mocks with loader error
+	mockTimer := &mockRefreshCondition{}
+	mockMonitor := &mockETagsClient{changed: true}
+	mockLoader := &mockKvRefreshClient{err: fmt.Errorf("loader error")}
+	mockSentinels := &mockKvRefreshClient{}
+
+	mockClient := refreshClient{
+		loader:    mockLoader,
+		monitor:   mockMonitor,
+		sentinels: mockSentinels,
+	}
+
+	// Setup provider
+	azappcfg := &AzureAppConfiguration{
+		kvRefreshTimer: mockTimer,
+	}
+
+	// Call refreshKeyValues
+	refreshed, err := azappcfg.refreshKeyValues(context.Background(), mockClient)
+
+	// Verify results
+	assert.Error(t, err)
+	assert.False(t, refreshed, "Should return false when error occurs")
+	assert.Contains(t, err.Error(), "loader error")
+	assert.Equal(t, 1, mockMonitor.checkCallCount, "Monitor should be called exactly once")
+	assert.Equal(t, 1, mockLoader.getCallCount, "Loader should be called when changes detected")
+	assert.False(t, mockTimer.resetCalled, "Timer should not be reset when error occurs")
+}
+
+// TestRefreshKeyValues_SentinelError tests when sentinel client returns an error
+func TestRefreshKeyValues_SentinelError(t *testing.T) {
+	// Setup mocks with sentinel error
+	mockTimer := &mockRefreshCondition{}
+	mockMonitor := &mockETagsClient{changed: true}
+	mockLoader := &mockKvRefreshClient{}
+	mockSentinels := &mockKvRefreshClient{err: fmt.Errorf("sentinel error")}
+
+	mockClient := refreshClient{
+		loader:    mockLoader,
+		monitor:   mockMonitor,
+		sentinels: mockSentinels,
+	}
+
+	// Setup provider with watchedSettings to ensure sentinels are used
+	azappcfg := &AzureAppConfiguration{
+		kvRefreshTimer:  mockTimer,
+		watchedSettings: []WatchedSetting{{Key: "test", Label: "test"}},
+	}
+
+	// Call refreshKeyValues
+	refreshed, err := azappcfg.refreshKeyValues(context.Background(), mockClient)
+
+	// Verify results
+	assert.Error(t, err)
+	assert.False(t, refreshed, "Should return false when error occurs")
+	assert.Contains(t, err.Error(), "sentinel error")
+	assert.Equal(t, 1, mockMonitor.checkCallCount, "Monitor should be called exactly once")
+	assert.Equal(t, 1, mockLoader.getCallCount, "Loader should be called when changes detected")
+	assert.Equal(t, 1, mockSentinels.getCallCount, "Sentinels should be called when changes detected")
+	assert.False(t, mockTimer.resetCalled, "Timer should not be reset when error occurs")
+}
+
+// TestRefreshKeyValues_MonitorError tests when monitor client returns an error
+func TestRefreshKeyValues_MonitorError(t *testing.T) {
+	// Setup mocks with monitor error
+	mockTimer := &mockRefreshCondition{}
+	mockMonitor := &mockETagsClient{err: fmt.Errorf("monitor error")}
+	mockLoader := &mockKvRefreshClient{}
+	mockSentinels := &mockKvRefreshClient{}
+
+	mockClient := refreshClient{
+		loader:    mockLoader,
+		monitor:   mockMonitor,
+		sentinels: mockSentinels,
+	}
+
+	// Setup provider
+	azappcfg := &AzureAppConfiguration{
+		kvRefreshTimer: mockTimer,
+	}
+
+	// Call refreshKeyValues
+	refreshed, err := azappcfg.refreshKeyValues(context.Background(), mockClient)
+
+	// Verify results
+	assert.Error(t, err)
+	assert.False(t, refreshed, "Should return false when error occurs")
+	assert.Contains(t, err.Error(), "monitor error")
+	assert.Equal(t, 1, mockMonitor.checkCallCount, "Monitor should be called exactly once")
+	assert.Equal(t, 0, mockLoader.getCallCount, "Loader should not be called when monitor fails")
+	assert.Equal(t, 0, mockSentinels.getCallCount, "Sentinels should not be called when monitor fails")
+	assert.False(t, mockTimer.resetCalled, "Timer should not be reset when error occurs")
 }

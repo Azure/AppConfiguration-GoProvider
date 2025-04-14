@@ -22,15 +22,15 @@ type Options struct {
 	// Selectors defines what key-values to load from Azure App Configuration
 	// Each selector combines a key filter and label filter
 	// If selectors are not provided, all key-values with no label are loaded by default.
-	Selectors       []Selector
+	Selectors []Selector
 	// RefreshOptions contains optional parameters to configure the behavior of key-value settings refresh
-	RefreshOptions  KeyValueRefreshOptions
+	RefreshOptions KeyValueRefreshOptions
 
 	// KeyVaultOptions configures how Key Vault references are resolved.
 	KeyVaultOptions KeyVaultOptions
 
 	// ClientOptions provides options for configuring the underlying Azure App Configuration client.
-	ClientOptions   *azappconfig.ClientOptions
+	ClientOptions *azappconfig.ClientOptions
 }
 
 // AuthenticationOptions contains parameters for authenticating with the Azure App Configuration service.
@@ -38,11 +38,11 @@ type Options struct {
 type AuthenticationOptions struct {
 	// Credential is a token credential for Azure EntraID Authenticaiton.
 	// Required when Endpoint is provided.
-	Credential       azcore.TokenCredential
+	Credential azcore.TokenCredential
 
 	// Endpoint is the URL of the Azure App Configuration service.
 	// Required when using token-based authentication with Credential.
-	Endpoint         string
+	Endpoint string
 
 	// ConnectionString is the connection string for the Azure App Configuration service.
 	ConnectionString string
@@ -52,7 +52,7 @@ type AuthenticationOptions struct {
 type Selector struct {
 	// KeyFilter specifies which keys to retrieve from Azure App Configuration.
 	// It can include wildcards, e.g. "app*" will match all keys starting with "app".
-	KeyFilter   string
+	KeyFilter string
 
 	// LabelFilter specifies which labels to retrieve from Azure App Configuration.
 	// Empty string or omitted value will use the default no-label filter.

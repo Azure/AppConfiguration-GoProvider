@@ -41,6 +41,12 @@ type eTagsClient interface {
 	checkIfETagChanged(ctx context.Context) (bool, error)
 }
 
+type refreshClient struct {
+	loader    settingsClient
+	monitor   eTagsClient
+	sentinels settingsClient
+}
+
 func (s *selectorSettingsClient) getSettings(ctx context.Context) (*settingsResponse, error) {
 	if s.tracingOptions.Enabled {
 		ctx = policy.WithHTTPHeader(ctx, tracing.CreateCorrelationContextHeader(ctx, s.tracingOptions))

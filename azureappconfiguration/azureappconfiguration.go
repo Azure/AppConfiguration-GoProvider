@@ -23,7 +23,7 @@ import (
 	"sync"
 
 	"github.com/Azure/AppConfiguration-GoProvider/azureappconfiguration/internal/tracing"
-	"github.com/Azure/AppConfiguration-GoProvider/azureappconfiguration/internal/refreshtimer"
+	"github.com/Azure/AppConfiguration-GoProvider/azureappconfiguration/internal/refresh"
 	"github.com/Azure/AppConfiguration-GoProvider/azureappconfiguration/internal/tree"
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore"
 	decoder "github.com/go-viper/mapstructure/v2"
@@ -38,15 +38,14 @@ type AzureAppConfiguration struct {
 	watchedSettings []WatchedSetting
 
 	sentinelETags    map[WatchedSetting]*azcore.ETag
-	kvRefreshTimer   refreshtimer.RefreshCondition
+	kvRefreshTimer   refresh.Condition
 	onRefreshSuccess []func()
 	tracingOptions tracing.Options
 
-	watchedSettingsMonitor eTagsClient
-	clientManager          *configurationClientManager
-	resolver               *keyVaultReferenceResolver
+	clientManager *configurationClientManager
+	resolver      *keyVaultReferenceResolver
 
-	refreshMutex      sync.Mutex
+	refreshMutex      sync.RWMutex
 	refreshInProgress bool
 }
 
@@ -92,7 +91,7 @@ func Load(ctx context.Context, authentication AuthenticationOptions, options *Op
 	}
 
 	if options.RefreshOptions.Enabled {
-		azappcfg.kvRefreshTimer = refreshtimer.New(options.RefreshOptions.Interval)
+		azappcfg.kvRefreshTimer = refresh.New(options.RefreshOptions.Interval)
 		azappcfg.watchedSettings = normalizedWatchedSettings(options.RefreshOptions.WatchedSettings)
 		azappcfg.sentinelETags = make(map[WatchedSetting]*azcore.ETag)
 	}
@@ -190,10 +189,16 @@ func (azappcfg *AzureAppConfiguration) Refresh(ctx context.Context) error {
 		return fmt.Errorf("refresh is not configured")
 	}
 
-	// Use a mutex to prevent concurrent refreshes
-	azappcfg.refreshMutex.Lock()
+	azappcfg.refreshMutex.RLock()
+	if azappcfg.refreshInProgress {
+		azappcfg.refreshMutex.RUnlock()
+		return nil
+	}
+	azappcfg.refreshMutex.RUnlock()
 
-	// Check if refresh is already in progress
+	// Use a write lock to update refresh status
+	azappcfg.refreshMutex.Lock()
+	// Double-check condition after acquiring the write lock
 	if azappcfg.refreshInProgress {
 		azappcfg.refreshMutex.Unlock()
 		return nil
@@ -212,7 +217,7 @@ func (azappcfg *AzureAppConfiguration) Refresh(ctx context.Context) error {
 	}
 
 	// Attempt to refresh and check if any values were actually updated
-	refreshed, err := azappcfg.refreshKeyValues(ctx)
+	refreshed, err := azappcfg.refreshKeyValues(ctx, azappcfg.newKvRefreshClient())
 	if err != nil {
 		return fmt.Errorf("failed to refresh configuration: %w", err)
 	}
@@ -369,18 +374,9 @@ func (azappcfg *AzureAppConfiguration) loadKeyValues(ctx context.Context, settin
 
 // refreshKeyValues checks if any watched settings have changed and reloads configuration if needed
 // Returns true if configuration was actually refreshed, false otherwise
-func (azappcfg *AzureAppConfiguration) refreshKeyValues(ctx context.Context) (bool, error) {
-	// Initialize the monitor if needed
-	if azappcfg.watchedSettingsMonitor == nil {
-		azappcfg.watchedSettingsMonitor = &watchedSettingClient{
-			watchedSettings: azappcfg.watchedSettings,
-			eTags:           azappcfg.sentinelETags,
-			client:          azappcfg.clientManager.staticClient.client,
-		}
-	}
-
+func (azappcfg *AzureAppConfiguration) refreshKeyValues(ctx context.Context, refreshClient refreshClient) (bool, error) {
 	// Check if any ETags have changed
-	eTagChanged, err := azappcfg.watchedSettingsMonitor.checkIfETagChanged(ctx)
+	eTagChanged, err := refreshClient.monitor.checkIfETagChanged(ctx)
 	if err != nil {
 		return false, fmt.Errorf("failed to check if watched settings have changed: %w", err)
 	}
@@ -391,26 +387,18 @@ func (azappcfg *AzureAppConfiguration) refreshKeyValues(ctx context.Context) (bo
 		return false, nil
 	}
 
-	// Create a client for loading all key values
-	keyValuesClient := &selectorSettingsClient{
-		selectors: azappcfg.kvSelectors,
-		client:    azappcfg.clientManager.staticClient.client,
-	}
-
 	// Use an errgroup to reload key values and watched settings concurrently
 	eg, egCtx := errgroup.WithContext(ctx)
 
 	// Reload key values in one goroutine
 	eg.Go(func() error {
-		return azappcfg.loadKeyValues(egCtx, keyValuesClient)
+		settingsClient := refreshClient.loader
+		return azappcfg.loadKeyValues(egCtx, settingsClient)
 	})
 
 	if len(azappcfg.watchedSettings) > 0 {
 		eg.Go(func() error {
-			watchedClient := &watchedSettingClient{
-				watchedSettings: azappcfg.watchedSettings,
-				client:          azappcfg.clientManager.staticClient.client,
-			}
+			watchedClient := refreshClient.sentinels
 			return azappcfg.loadWatchedSettings(egCtx, watchedClient)
 		})
 	}
@@ -518,4 +506,21 @@ func normalizedWatchedSettings(s []WatchedSetting) []WatchedSetting {
 	}
 
 	return result
+}
+
+func (azappcfg *AzureAppConfiguration) newKvRefreshClient() refreshClient {
+	return refreshClient{
+		loader: &selectorSettingsClient{
+			selectors: azappcfg.kvSelectors,
+			client:    azappcfg.clientManager.staticClient.client,
+		},
+		monitor: &watchedSettingClient{
+			eTags:  azappcfg.sentinelETags,
+			client: azappcfg.clientManager.staticClient.client,
+		},
+		sentinels: &watchedSettingClient{
+			watchedSettings: azappcfg.watchedSettings,
+			client:          azappcfg.clientManager.staticClient.client,
+		},
+	}
 }
