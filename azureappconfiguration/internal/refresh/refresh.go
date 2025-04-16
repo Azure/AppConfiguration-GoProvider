@@ -21,9 +21,9 @@ const (
 	DefaultRefreshInterval time.Duration = 30 * time.Second
 )
 
-// New creates a new refresh timer with the specified interval
+// NewTimer creates a new refresh timer with the specified interval
 // If interval is zero or negative, it falls back to the DefaultRefreshInterval
-func New(interval time.Duration) *Timer {
+func NewTimer(interval time.Duration) *Timer {
 	// Use default interval if not specified or invalid
 	if interval <= 0 {
 		interval = DefaultRefreshInterval

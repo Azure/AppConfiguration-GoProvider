@@ -209,7 +209,7 @@ func TestNormalizedWatchedSettings(t *testing.T) {
 // Additional test to verify real RefreshTimer behavior
 func TestRealRefreshTimer(t *testing.T) {
 	// Create a real refresh timer with a short interval
-	timer := refresh.New(100 * time.Millisecond)
+	timer := refresh.NewTimer(100 * time.Millisecond)
 
 	// Initially it should not be time to refresh
 	assert.False(t, timer.ShouldRefresh(), "New timer should not immediately indicate refresh needed")
