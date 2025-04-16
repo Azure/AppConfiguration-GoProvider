@@ -92,6 +92,7 @@ func Load(ctx context.Context, authentication AuthenticationOptions, options *Op
 
 	if options.RefreshOptions.Enabled {
 		azappcfg.kvRefreshTimer = refresh.NewTimer(options.RefreshOptions.Interval)
+		azappcfg.watchedSettings = normalizedWatchedSettings(options.RefreshOptions.WatchedSettings)
 		azappcfg.sentinelETags = make(map[WatchedSetting]*azcore.ETag)
 		return nil, err
 	}
