@@ -43,8 +43,8 @@ type AzureAppConfiguration struct {
 	onRefreshSuccess []func()
 	tracingOptions   tracing.Options
 
-	clientManager *configurationClientManager
-	resolver      *keyVaultReferenceResolver
+	clientManager      *configurationClientManager
+	resolver           *keyVaultReferenceResolver
 
 	refreshInProgress atomic.Bool
 }
@@ -94,6 +94,9 @@ func Load(ctx context.Context, authentication AuthenticationOptions, options *Op
 		azappcfg.kvRefreshTimer = refresh.NewTimer(options.RefreshOptions.Interval)
 		azappcfg.watchedSettings = normalizedWatchedSettings(options.RefreshOptions.WatchedSettings)
 		azappcfg.sentinelETags = make(map[WatchedSetting]*azcore.ETag)
+	}
+
+	if err := azappcfg.load(ctx); err != nil {
 		return nil, err
 	}
 	// Set the initial load finished flag
@@ -510,5 +513,5 @@ func (azappcfg *AzureAppConfiguration) newKeyValueRefreshClient() refreshClient 
 			client:          azappcfg.clientManager.staticClient.client,
 			tracingOptions:  azappcfg.tracingOptions,
 		},
-	}
+	 }
 }
