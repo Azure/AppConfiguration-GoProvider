@@ -6,6 +6,8 @@ package azureappconfiguration
 import (
 	"context"
 	"fmt"
+	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -55,20 +57,6 @@ func TestRefresh_NotConfigured(t *testing.T) {
 	// Verify that an error is returned
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "refresh is not configured")
-}
-
-func TestRefresh_AlreadyInProgress(t *testing.T) {
-	// Setup a provider with refresh already in progress
-	azappcfg := &AzureAppConfiguration{
-		kvRefreshTimer:    &mockRefreshCondition{},
-		refreshInProgress: true,
-	}
-
-	// Attempt to refresh
-	err := azappcfg.Refresh(context.Background())
-
-	// Verify no error and that we returned early
-	assert.NoError(t, err)
 }
 
 func TestRefresh_NotTimeToRefresh(t *testing.T) {
@@ -399,4 +387,143 @@ func TestRefreshKeyValues_MonitorError(t *testing.T) {
 	assert.Equal(t, 0, mockLoader.getCallCount, "Loader should not be called when monitor fails")
 	assert.Equal(t, 0, mockSentinels.getCallCount, "Sentinels should not be called when monitor fails")
 	assert.False(t, mockTimer.resetCalled, "Timer should not be reset when error occurs")
+}
+
+// TestRefresh_AlreadyInProgress tests the new atomic implementation of refresh status checking
+func TestRefresh_AlreadyInProgress(t *testing.T) {
+	// Setup a provider with refresh already in progress
+	azappcfg := &AzureAppConfiguration{
+		kvRefreshTimer: &mockRefreshCondition{},
+	}
+
+	// Manually set the refresh in progress flag
+	azappcfg.refreshInProgress.Store(true)
+
+	// Attempt to refresh
+	err := azappcfg.Refresh(context.Background())
+
+	// Verify no error and that we returned early
+	assert.NoError(t, err)
+}
+
+// TestRefresh_ConcurrentCalls tests calling Refresh concurrently from multiple goroutines
+func TestRefresh_ConcurrentCalls(t *testing.T) {
+	// Skip in short mode as race detector makes it slower
+	if testing.Short() {
+		t.Skip("Skipping concurrent refresh test in short mode")
+	}
+
+	// Setup mock components
+	mockTimer := refresh.NewTimer(100 * time.Millisecond)
+	time.Sleep(100 * time.Millisecond) // Ensure timer is set to refresh
+	mockMonitor := &mockETagsClient{changed: true}
+	mockLoader := &mockKvRefreshClient{}
+	mockSentinels := &mockKvRefreshClient{}
+
+	// Track actual refresh operations
+	refreshCount := int32(0)
+
+	// Create a provider with the components needed for refresh
+	azappcfg := &AzureAppConfiguration{
+		kvRefreshTimer:  mockTimer,
+		watchedSettings: []WatchedSetting{{Key: "test", Label: "test"}},
+		sentinelETags:   make(map[WatchedSetting]*azcore.ETag),
+		onRefreshSuccess: []func(){
+			func() {
+				// Count each successful refresh
+				atomic.AddInt32(&refreshCount, 1)
+			},
+		},
+	}
+
+	// Override the newKvRefreshClient method to return our mocks
+	originalNewMethod := azappcfg.newKvRefreshClient
+	azappcfg.newKvRefreshClient = func() refreshClient {
+		return refreshClient{
+			loader:    mockLoader,
+			monitor:   mockMonitor,
+			sentinels: mockSentinels,
+		}
+	}
+	defer func() {
+		// Restore original method after test
+		if originalNewMethod != nil {
+			azappcfg.newKvRefreshClient = originalNewMethod
+		}
+	}()
+
+	// Number of concurrent goroutines to launch
+	const concurrentCalls = 10
+
+	// Use a wait group to ensure all goroutines complete
+	var wg sync.WaitGroup
+	wg.Add(concurrentCalls)
+
+	// Launch multiple goroutines to call Refresh concurrently
+	for i := 0; i < concurrentCalls; i++ {
+		go func(idx int) {
+			defer wg.Done()
+
+			// Call Refresh with a small delay between calls to increase chance of concurrency
+			time.Sleep(time.Millisecond * time.Duration(idx))
+			err := azappcfg.Refresh(context.Background())
+
+			// Each call should succeed without error
+			assert.NoError(t, err, "Refresh call %d should not return error", idx)
+		}(i)
+	}
+
+	// Wait for all goroutines to complete
+	wg.Wait()
+
+	// Only one refresh operation should actually complete successfully
+	// Since refreshInProgress prevents multiple refreshes
+	assert.Equal(t, int32(1), refreshCount, "Only one refresh operation should have executed")
+}
+
+// TestRefresh_SequentialCalls tests multiple sequential calls to Refresh
+func TestRefresh_SequentialCalls(t *testing.T) {
+	// Setup mock components
+	mockTimer := &mockRefreshCondition{shouldRefresh: true}
+	mockMonitor := &mockETagsClient{changed: true}
+	mockLoader := &mockKvRefreshClient{}
+	mockSentinels := &mockKvRefreshClient{}
+
+	// Track actual refresh operations
+	refreshCount := int32(0)
+
+	// Create a provider with the components needed for refresh
+	azappcfg := &AzureAppConfiguration{
+		kvRefreshTimer:  mockTimer,
+		watchedSettings: []WatchedSetting{{Key: "test", Label: "test"}},
+		sentinelETags:   make(map[WatchedSetting]*azcore.ETag),
+		onRefreshSuccess: []func(){
+			func() {
+				// Count each successful refresh
+				atomic.AddInt32(&refreshCount, 1)
+			},
+		},
+	}
+
+	// Override the newKvRefreshClient method to return our mocks
+	azappcfg.newKvRefreshClient = func() refreshClient {
+		return refreshClient{
+			loader:    mockLoader,
+			monitor:   mockMonitor,
+			sentinels: mockSentinels,
+		}
+	}
+
+	// First call should perform a refresh
+	err1 := azappcfg.Refresh(context.Background())
+	assert.NoError(t, err1)
+	assert.Equal(t, int32(1), refreshCount)
+
+	// Reset the refreshInProgress flag to simulate completion
+	azappcfg.refreshInProgress.Store(false)
+
+	// Second call should also perform a refresh
+	err2 := azappcfg.Refresh(context.Background())
+	assert.NoError(t, err2)
+	assert.Equal(t, int32(2), refreshCount)
 }

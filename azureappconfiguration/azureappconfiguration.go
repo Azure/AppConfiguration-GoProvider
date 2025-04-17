@@ -21,6 +21,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 
 	"github.com/Azure/AppConfiguration-GoProvider/azureappconfiguration/internal/tracing"
 	"github.com/Azure/AppConfiguration-GoProvider/azureappconfiguration/internal/refresh"
@@ -42,11 +43,11 @@ type AzureAppConfiguration struct {
 	onRefreshSuccess []func()
 	tracingOptions tracing.Options
 
-	clientManager *configurationClientManager
-	resolver      *keyVaultReferenceResolver
+	clientManager      *configurationClientManager
+	resolver           *keyVaultReferenceResolver
+	newKvRefreshClient func() refreshClient
 
-	refreshMutex      sync.RWMutex
-	refreshInProgress bool
+	refreshInProgress atomic.Bool
 }
 
 // Load initializes a new AzureAppConfiguration instance and loads the configuration data from
@@ -94,6 +95,7 @@ func Load(ctx context.Context, authentication AuthenticationOptions, options *Op
 		azappcfg.kvRefreshTimer = refresh.NewTimer(options.RefreshOptions.Interval)
 		azappcfg.watchedSettings = normalizedWatchedSettings(options.RefreshOptions.WatchedSettings)
 		azappcfg.sentinelETags = make(map[WatchedSetting]*azcore.ETag)
+		azappcfg.newKvRefreshClient = azappcfg.newKeyValueRefreshClient
 	}
 
 	if err := azappcfg.load(ctx); err != nil {
@@ -189,27 +191,13 @@ func (azappcfg *AzureAppConfiguration) Refresh(ctx context.Context) error {
 		return fmt.Errorf("refresh is not configured")
 	}
 
-	azappcfg.refreshMutex.RLock()
-	if azappcfg.refreshInProgress {
-		azappcfg.refreshMutex.RUnlock()
-		return nil
-	}
-	azappcfg.refreshMutex.RUnlock()
-
-	// Use a write lock to update refresh status
-	azappcfg.refreshMutex.Lock()
-	// Double-check condition after acquiring the write lock
-	if azappcfg.refreshInProgress {
-		azappcfg.refreshMutex.Unlock()
-		return nil
+	// Try to set refreshInProgress to true, returning false if it was already true
+	if !azappcfg.refreshInProgress.CompareAndSwap(false, true) {
+		return nil // Another refresh is already in progress
 	}
 
-	// Mark refresh as in progress and unlock the mutex after function completes
-	azappcfg.refreshInProgress = true
-	defer func() {
-		azappcfg.refreshInProgress = false
-		azappcfg.refreshMutex.Unlock()
-	}()
+	// Reset the flag when we're done
+	defer azappcfg.refreshInProgress.Store(false)
 
 	// Check if it's time to perform a refresh based on the timer interval
 	if !azappcfg.kvRefreshTimer.ShouldRefresh() {
@@ -508,7 +496,7 @@ func normalizedWatchedSettings(s []WatchedSetting) []WatchedSetting {
 	return result
 }
 
-func (azappcfg *AzureAppConfiguration) newKvRefreshClient() refreshClient {
+func (azappcfg *AzureAppConfiguration) newKeyValueRefreshClient() refreshClient {
 	return refreshClient{
 		loader: &selectorSettingsClient{
 			selectors: azappcfg.kvSelectors,
@@ -522,5 +510,5 @@ func (azappcfg *AzureAppConfiguration) newKvRefreshClient() refreshClient {
 			watchedSettings: azappcfg.watchedSettings,
 			client:          azappcfg.clientManager.staticClient.client,
 		},
-	}
+	 }
 }
