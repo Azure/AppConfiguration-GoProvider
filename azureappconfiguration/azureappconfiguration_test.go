@@ -77,6 +77,7 @@ func TestLoadKeyValues_WithKeyVaultReferences(t *testing.T) {
 		},
 		kvSelectors: deduplicateSelectors([]Selector{}),
 		keyValues:   make(map[string]any),
+		secrets:     make(map[string]string),
 		resolver: &keyVaultReferenceResolver{
 			clients:        sync.Map{},
 			secretResolver: mockSecretResolver,
@@ -87,7 +88,7 @@ func TestLoadKeyValues_WithKeyVaultReferences(t *testing.T) {
 
 	assert.NoError(t, err)
 	assert.Equal(t, "value1", *azappcfg.keyValues["key1"].(*string))
-	assert.Equal(t, "resolved-secret", azappcfg.keyValues["secret1"])
+	assert.Equal(t, "resolved-secret", azappcfg.secrets["secret1"])
 	mockSettingsClient.AssertExpectations(t)
 	mockSecretResolver.AssertExpectations(t)
 }
@@ -695,6 +696,7 @@ func TestLoadKeyValues_WithConcurrentKeyVaultReferences(t *testing.T) {
 		},
 		kvSelectors: deduplicateSelectors([]Selector{}),
 		keyValues:   make(map[string]any),
+		secrets:     make(map[string]string),
 		resolver: &keyVaultReferenceResolver{
 			clients:        sync.Map{},
 			secretResolver: mockResolver,
@@ -713,9 +715,9 @@ func TestLoadKeyValues_WithConcurrentKeyVaultReferences(t *testing.T) {
 	// Verify results
 	assert.NoError(t, err)
 	assert.Equal(t, "value1", *azappcfg.keyValues["standard"].(*string))
-	assert.Equal(t, "resolved-secret1", azappcfg.keyValues["secret1"])
-	assert.Equal(t, "resolved-secret2", azappcfg.keyValues["secret2"])
-	assert.Equal(t, "resolved-secret3", azappcfg.keyValues["secret3"])
+	assert.Equal(t, "resolved-secret1", azappcfg.secrets["secret1"])
+	assert.Equal(t, "resolved-secret2", azappcfg.secrets["secret2"])
+	assert.Equal(t, "resolved-secret3", azappcfg.secrets["secret3"])
 
 	// Verify all resolver calls were made
 	mockResolver.AssertNumberOfCalls(t, "ResolveSecret", 3)

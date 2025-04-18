@@ -104,6 +104,16 @@ type KeyVaultOptions struct {
 	// SecretResolver specifies a custom implementation for resolving Key Vault references.
 	// When provided, this takes precedence over using the default resolver with Credential.
 	SecretResolver SecretResolver
+
+	// RefreshOptions specifies the behavior of key vault reference resolution refresh
+	// Refresh interval must be greater than 1 minute.
+	RefreshOptions RefreshOptions
+}
+
+// RefreshOptions contains optional parameters to configure the behavior of refresh
+type RefreshOptions struct {
+	Interval time.Duration
+	Enabled  bool
 }
 
 // ConstructionOptions contains parameters for parsing keys with hierarchical structure.

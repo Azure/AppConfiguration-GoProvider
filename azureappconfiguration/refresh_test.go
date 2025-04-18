@@ -231,7 +231,7 @@ func (m *mockKvRefreshClient) getSettings(ctx context.Context) (*settingsRespons
 // TestRefreshKeyValues_NoChanges tests when no ETags change is detected
 func TestRefreshKeyValues_NoChanges(t *testing.T) {
 	// Setup mocks
-	mockTimer := &mockRefreshCondition{}
+	mockTimer := &mockRefreshCondition{shouldRefresh: true}
 	mockMonitor := &mockETagsClient{changed: false}
 	mockLoader := &mockKvRefreshClient{}
 	mockSentinels := &mockKvRefreshClient{}
@@ -262,7 +262,7 @@ func TestRefreshKeyValues_NoChanges(t *testing.T) {
 // TestRefreshKeyValues_ChangesDetected tests when ETags changed and reload succeeds
 func TestRefreshKeyValues_ChangesDetected(t *testing.T) {
 	// Setup mocks for successful refresh
-	mockTimer := &mockRefreshCondition{}
+	mockTimer := &mockRefreshCondition{shouldRefresh: true}
 	mockMonitor := &mockETagsClient{changed: true}
 	mockLoader := &mockKvRefreshClient{}
 	mockSentinels := &mockKvRefreshClient{}
@@ -294,7 +294,7 @@ func TestRefreshKeyValues_ChangesDetected(t *testing.T) {
 // TestRefreshKeyValues_LoaderError tests when loader client returns an error
 func TestRefreshKeyValues_LoaderError(t *testing.T) {
 	// Setup mocks with loader error
-	mockTimer := &mockRefreshCondition{}
+	mockTimer := &mockRefreshCondition{shouldRefresh: true}
 	mockMonitor := &mockETagsClient{changed: true}
 	mockLoader := &mockKvRefreshClient{err: fmt.Errorf("loader error")}
 	mockSentinels := &mockKvRefreshClient{}
@@ -325,7 +325,7 @@ func TestRefreshKeyValues_LoaderError(t *testing.T) {
 // TestRefreshKeyValues_SentinelError tests when sentinel client returns an error
 func TestRefreshKeyValues_SentinelError(t *testing.T) {
 	// Setup mocks with sentinel error
-	mockTimer := &mockRefreshCondition{}
+	mockTimer := &mockRefreshCondition{shouldRefresh: true}
 	mockMonitor := &mockETagsClient{changed: true}
 	mockLoader := &mockKvRefreshClient{}
 	mockSentinels := &mockKvRefreshClient{err: fmt.Errorf("sentinel error")}
@@ -358,7 +358,7 @@ func TestRefreshKeyValues_SentinelError(t *testing.T) {
 // TestRefreshKeyValues_MonitorError tests when monitor client returns an error
 func TestRefreshKeyValues_MonitorError(t *testing.T) {
 	// Setup mocks with monitor error
-	mockTimer := &mockRefreshCondition{}
+	mockTimer := &mockRefreshCondition{shouldRefresh: true}
 	mockMonitor := &mockETagsClient{err: fmt.Errorf("monitor error")}
 	mockLoader := &mockKvRefreshClient{}
 	mockSentinels := &mockKvRefreshClient{}
