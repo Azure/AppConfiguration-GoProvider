@@ -17,10 +17,12 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
-	"regexp"
+	"os"
+	"strconv"
 	"strings"
 	"sync"
 
+	"github.com/Azure/AppConfiguration-GoProvider/azureappconfiguration/internal/tracing"
 	"github.com/Azure/AppConfiguration-GoProvider/azureappconfiguration/internal/tree"
 	decoder "github.com/go-viper/mapstructure/v2"
 	"golang.org/x/sync/errgroup"
@@ -34,6 +36,8 @@ type AzureAppConfiguration struct {
 
 	clientManager *configurationClientManager
 	resolver      *keyVaultReferenceResolver
+
+	tracingOptions tracing.Options
 }
 
 // Load initializes a new AzureAppConfiguration instance and loads the configuration data from
@@ -62,6 +66,7 @@ func Load(ctx context.Context, authentication AuthenticationOptions, options *Op
 	}
 
 	azappcfg := new(AzureAppConfiguration)
+	azappcfg.tracingOptions = configureTracingOptions(options)
 	azappcfg.keyValues = make(map[string]any)
 	azappcfg.kvSelectors = deduplicateSelectors(options.Selectors)
 	azappcfg.trimPrefixes = options.TrimKeyPrefixes
@@ -79,7 +84,7 @@ func Load(ctx context.Context, authentication AuthenticationOptions, options *Op
 	return azappcfg, nil
 }
 
-// Unmarshal parses the configuration and stores the result in the value pointed to v. It builds a hierarchical configuration structure based on key separators. 
+// Unmarshal parses the configuration and stores the result in the value pointed to v. It builds a hierarchical configuration structure based on key separators.
 // It supports converting values to appropriate target types.
 //
 // Fields in the target struct are matched with configuration keys using the field name by default.
@@ -121,7 +126,7 @@ func (azappcfg *AzureAppConfiguration) Unmarshal(v any, options *ConstructionOpt
 	return decoder.Decode(azappcfg.constructHierarchicalMap(options.Separator))
 }
 
-// GetBytes returns the configuration as a JSON byte array with hierarchical structure. 
+// GetBytes returns the configuration as a JSON byte array with hierarchical structure.
 // This method is particularly useful for integrating with "encoding/json" package or third-party configuration packages like Viper or Koanf.
 //
 // Parameters:
@@ -147,8 +152,9 @@ func (azappcfg *AzureAppConfiguration) GetBytes(options *ConstructionOptions) ([
 
 func (azappcfg *AzureAppConfiguration) load(ctx context.Context) error {
 	keyValuesClient := &selectorSettingsClient{
-		selectors: azappcfg.kvSelectors,
-		client:    azappcfg.clientManager.staticClient.client,
+		selectors:      azappcfg.kvSelectors,
+		client:         azappcfg.clientManager.staticClient.client,
+		tracingOptions: azappcfg.tracingOptions,
 	}
 
 	return azappcfg.loadKeyValues(ctx, keyValuesClient)
@@ -160,6 +166,7 @@ func (azappcfg *AzureAppConfiguration) loadKeyValues(ctx context.Context, settin
 		return err
 	}
 
+	var useAIConfiguration, useAIChatCompletionConfiguration bool
 	kvSettings := make(map[string]any, len(settingsResponse.settings))
 	keyVaultRefs := make(map[string]string)
 	for _, setting := range settingsResponse.settings {
@@ -177,7 +184,7 @@ func (azappcfg *AzureAppConfiguration) loadKeyValues(ctx context.Context, settin
 			continue
 		}
 
-		switch *setting.ContentType {
+		switch strings.TrimSpace(strings.ToLower(*setting.ContentType)) {
 		case featureFlagContentType:
 			continue // ignore feature flag while getting key value settings
 		case secretReferenceContentType:
@@ -190,11 +197,20 @@ func (azappcfg *AzureAppConfiguration) loadKeyValues(ctx context.Context, settin
 					continue
 				}
 				kvSettings[trimmedKey] = v
+				if isAIConfigurationContentType(setting.ContentType) {
+					useAIConfiguration = true
+				}
+				if isAIChatCompletionContentType(setting.ContentType) {
+					useAIChatCompletionConfiguration = true
+				}
 			} else {
 				kvSettings[trimmedKey] = setting.Value
 			}
 		}
 	}
+
+	azappcfg.tracingOptions.UseAIConfiguration = useAIConfiguration
+	azappcfg.tracingOptions.UseAIChatCompletionConfiguration = useAIChatCompletionConfiguration
 
 	var eg errgroup.Group
 	resolvedSecrets := sync.Map{}
@@ -242,15 +258,6 @@ func (azappcfg *AzureAppConfiguration) trimPrefix(key string) string {
 	return result
 }
 
-func isJsonContentType(contentType *string) bool {
-	if contentType == nil {
-		return false
-	}
-	contentTypeStr := strings.ToLower(strings.Trim(*contentType, " "))
-	matched, _ := regexp.MatchString("^application\\/(?:[^\\/]+\\+)?json(;.*)?$", contentTypeStr)
-	return matched
-}
-
 func deduplicateSelectors(selectors []Selector) []Selector {
 	// If no selectors provided, return the default selector
 	if len(selectors) == 0 {
@@ -294,4 +301,26 @@ func (azappcfg *AzureAppConfiguration) constructHierarchicalMap(separator string
 	}
 
 	return tree.Build()
+}
+
+func configureTracingOptions(options *Options) tracing.Options {
+	tracingOption := tracing.Options{
+		Enabled: true,
+	}
+
+	if value, exist := os.LookupEnv(tracing.EnvVarTracingDisabled); exist {
+		tracingDisabled, _ := strconv.ParseBool(value)
+		if tracingDisabled {
+			tracingOption.Enabled = false
+			return tracingOption
+		}
+	}
+
+	tracingOption.Host = tracing.GetHostType()
+
+	if !(options.KeyVaultOptions.SecretResolver == nil && options.KeyVaultOptions.Credential == nil) {
+		tracingOption.KeyVaultConfigured = true
+	}
+
+	return tracingOption
 }

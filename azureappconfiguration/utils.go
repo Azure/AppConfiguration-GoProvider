@@ -5,7 +5,10 @@ package azureappconfiguration
 
 import (
 	"fmt"
+	"regexp"
 	"strings"
+
+	"github.com/Azure/AppConfiguration-GoProvider/azureappconfiguration/internal/tracing"
 )
 
 func verifyAuthenticationOptions(authOptions AuthenticationOptions) error {
@@ -64,4 +67,45 @@ func verifySeparator(separator string) error {
 	}
 
 	return nil
+}
+
+func isJsonContentType(contentType *string) bool {
+	if contentType == nil {
+		return false
+	}
+	contentTypeStr := strings.ToLower(strings.Trim(*contentType, " "))
+	matched, _ := regexp.MatchString("^application\\/(?:[^\\/]+\\+)?json(;.*)?$", contentTypeStr)
+	return matched
+}
+
+func isAIConfigurationContentType(contentType *string) bool {
+	return hasProfile(*contentType, tracing.AIMimeProfile)
+}
+
+func isAIChatCompletionContentType(contentType *string) bool {
+	return hasProfile(*contentType, tracing.AIChatCompletionMimeProfile)
+}
+
+// hasProfile checks if a content type contains a specific profile parameter
+func hasProfile(contentType, profileValue string) bool {
+	// Split by semicolons to get content type parts
+	parts := strings.Split(contentType, ";")
+
+	// Check each part after the content type for profile parameter
+	for i := 1; i < len(parts); i++ {
+		part := strings.TrimSpace(parts[i])
+
+		// Look for profile="value" pattern
+		if strings.HasPrefix(part, "profile=") {
+			// Extract the profile value (handling quoted values)
+			profile := part[len("profile="):]
+			profile = strings.Trim(profile, "\"'")
+
+			if profile == profileValue {
+				return true
+			}
+		}
+	}
+
+	return false
 }
