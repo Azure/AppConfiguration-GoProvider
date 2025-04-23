@@ -20,14 +20,13 @@ func TestCreateCorrelationContextHeader(t *testing.T) {
 
 		// The header should be empty but exist
 		corrContext := header.Get(CorrelationContextHeader)
-		assert.Equal(t, "", corrContext)
+		assert.Equal(t, "RequestType=StartUp", corrContext)
 	})
 
 	t.Run("with RequestTypeStartUp", func(t *testing.T) {
-		ctx := context.WithValue(context.Background(), TracingKey, RequestTypeStartUp)
 		options := Options{}
 
-		header := CreateCorrelationContextHeader(ctx, options)
+		header := CreateCorrelationContextHeader(context.Background(), options)
 
 		// Should contain RequestTypeStartUp
 		corrContext := header.Get(CorrelationContextHeader)
@@ -35,10 +34,11 @@ func TestCreateCorrelationContextHeader(t *testing.T) {
 	})
 
 	t.Run("with RequestTypeWatch", func(t *testing.T) {
-		ctx := context.WithValue(context.Background(), TracingKey, RequestTypeWatch)
-		options := Options{}
+		options := Options{
+			InitialLoadFinished: true,
+		}
 
-		header := CreateCorrelationContextHeader(ctx, options)
+		header := CreateCorrelationContextHeader(context.Background(), options)
 
 		// Should contain RequestTypeWatch
 		corrContext := header.Get(CorrelationContextHeader)
@@ -132,7 +132,6 @@ func TestCreateCorrelationContextHeader(t *testing.T) {
 	})
 
 	t.Run("with all options", func(t *testing.T) {
-		ctx := context.WithValue(context.Background(), TracingKey, RequestTypeStartUp)
 		options := Options{
 			Host:                             HostTypeAzureFunction,
 			KeyVaultConfigured:               true,
@@ -140,7 +139,7 @@ func TestCreateCorrelationContextHeader(t *testing.T) {
 			UseAIChatCompletionConfiguration: true,
 		}
 
-		header := CreateCorrelationContextHeader(ctx, options)
+		header := CreateCorrelationContextHeader(context.Background(), options)
 
 		// Check the complete header
 		corrContext := header.Get(CorrelationContextHeader)
@@ -168,13 +167,12 @@ func TestCreateCorrelationContextHeader(t *testing.T) {
 	})
 
 	t.Run("delimiter handling", func(t *testing.T) {
-		ctx := context.WithValue(context.Background(), TracingKey, RequestTypeStartUp)
 		options := Options{
 			Host:               HostTypeAzureWebApp,
 			KeyVaultConfigured: true,
 		}
 
-		header := CreateCorrelationContextHeader(ctx, options)
+		header := CreateCorrelationContextHeader(context.Background(), options)
 
 		// Check the complete header
 		corrContext := header.Get(CorrelationContextHeader)

@@ -98,9 +98,11 @@ func Load(ctx context.Context, authentication AuthenticationOptions, options *Op
 		azappcfg.newKvRefreshClient = azappcfg.newKeyValueRefreshClient
 	}
 
-	ctx = context.WithValue(ctx, tracing.TracingKey, tracing.RequestTypeStartUp)
 	if err := azappcfg.load(ctx); err != nil {
 		return nil, err
+	} else {
+		// If the initial load was successful, set the initial load finished flag
+		azappcfg.tracingOptions.InitialLoadFinished = true
 	}
 
 	return azappcfg, nil
@@ -206,7 +208,6 @@ func (azappcfg *AzureAppConfiguration) Refresh(ctx context.Context) error {
 	}
 
 	// Attempt to refresh and check if any values were actually updated
-	ctx = context.WithValue(ctx, tracing.TracingKey, tracing.RequestTypeWatch)
 	refreshed, err := azappcfg.refreshKeyValues(ctx, azappcfg.newKvRefreshClient())
 	if err != nil {
 		return fmt.Errorf("failed to refresh configuration: %w", err)
