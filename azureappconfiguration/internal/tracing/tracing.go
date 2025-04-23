@@ -11,12 +11,13 @@ import (
 )
 
 type RequestType string
-
+type RequestTracingKey string
 type HostType string
 
 const (
-	RequestTypeStartUp RequestType = "StartUp"
-	RequestTypeWatch   RequestType = "Watch"
+	TracingKey         RequestTracingKey = "Tracing"
+	RequestTypeStartUp RequestType       = "StartUp"
+	RequestTypeWatch   RequestType       = "Watch"
 
 	HostTypeAzureFunction HostType = "AzureFunction"
 	HostTypeAzureWebApp   HostType = "AzureWebApp"
@@ -32,7 +33,6 @@ const (
 	// Documentation : https://docs.microsoft.com/en-us/azure/service-fabric/service-fabric-environment-variables-reference
 	EnvVarServiceFabric = "Fabric_NodeName"
 
-	RequestTracingKey                = "Tracing"
 	RequestTypeKey                   = "RequestType"
 	HostTypeKey                      = "Host"
 	KeyVaultConfiguredTag            = "UsesKeyVault"
@@ -75,7 +75,7 @@ func CreateCorrelationContextHeader(ctx context.Context, options Options) http.H
 	header := http.Header{}
 	output := make([]string, 0)
 
-	if tracing := ctx.Value(RequestTracingKey); tracing != nil {
+	if tracing := ctx.Value(TracingKey); tracing != nil {
 		if tracing.(RequestType) == RequestTypeStartUp {
 			output = append(output, RequestTypeKey+"="+string(RequestTypeStartUp))
 		} else if tracing.(RequestType) == RequestTypeWatch {

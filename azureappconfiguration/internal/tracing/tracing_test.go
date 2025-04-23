@@ -24,7 +24,7 @@ func TestCreateCorrelationContextHeader(t *testing.T) {
 	})
 
 	t.Run("with RequestTypeStartUp", func(t *testing.T) {
-		ctx := context.WithValue(context.Background(), RequestTracingKey, RequestTypeStartUp)
+		ctx := context.WithValue(context.Background(), TracingKey, RequestTypeStartUp)
 		options := Options{}
 
 		header := CreateCorrelationContextHeader(ctx, options)
@@ -35,7 +35,7 @@ func TestCreateCorrelationContextHeader(t *testing.T) {
 	})
 
 	t.Run("with RequestTypeWatch", func(t *testing.T) {
-		ctx := context.WithValue(context.Background(), RequestTracingKey, RequestTypeWatch)
+		ctx := context.WithValue(context.Background(), TracingKey, RequestTypeWatch)
 		options := Options{}
 
 		header := CreateCorrelationContextHeader(ctx, options)
@@ -132,7 +132,7 @@ func TestCreateCorrelationContextHeader(t *testing.T) {
 	})
 
 	t.Run("with all options", func(t *testing.T) {
-		ctx := context.WithValue(context.Background(), RequestTracingKey, RequestTypeStartUp)
+		ctx := context.WithValue(context.Background(), TracingKey, RequestTypeStartUp)
 		options := Options{
 			Host:                             HostTypeAzureFunction,
 			KeyVaultConfigured:               true,
@@ -168,7 +168,7 @@ func TestCreateCorrelationContextHeader(t *testing.T) {
 	})
 
 	t.Run("delimiter handling", func(t *testing.T) {
-		ctx := context.WithValue(context.Background(), RequestTracingKey, RequestTypeStartUp)
+		ctx := context.WithValue(context.Background(), TracingKey, RequestTypeStartUp)
 		options := Options{
 			Host:               HostTypeAzureWebApp,
 			KeyVaultConfigured: true,

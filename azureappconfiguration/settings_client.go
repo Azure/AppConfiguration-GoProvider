@@ -9,8 +9,8 @@ import (
 	"log"
 
 	"github.com/Azure/AppConfiguration-GoProvider/azureappconfiguration/internal/tracing"
-	"github.com/Azure/azure-sdk-for-go/sdk/azcore/policy"
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore"
+	"github.com/Azure/azure-sdk-for-go/sdk/azcore/policy"
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore/to"
 	"github.com/Azure/azure-sdk-for-go/sdk/data/azappconfig"
 )
@@ -30,7 +30,7 @@ type watchedSettingClient struct {
 	watchedSettings []WatchedSetting
 	eTags           map[WatchedSetting]*azcore.ETag
 	client          *azappconfig.Client
-	tracingOptions tracing.Options
+	tracingOptions  tracing.Options
 }
 
 type settingsClient interface {
