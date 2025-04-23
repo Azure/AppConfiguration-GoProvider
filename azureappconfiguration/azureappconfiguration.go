@@ -98,10 +98,9 @@ func Load(ctx context.Context, authentication AuthenticationOptions, options *Op
 
 	if err := azappcfg.load(ctx); err != nil {
 		return nil, err
-	} else {
-		// If the initial load was successful, set the initial load finished flag
-		azappcfg.tracingOptions.InitialLoadFinished = true
 	}
+	// Set the initial load finished flag
+	azappcfg.tracingOptions.InitialLoadFinished = true
 
 	return azappcfg, nil
 }

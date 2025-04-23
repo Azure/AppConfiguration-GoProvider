@@ -32,7 +32,6 @@ const (
 	// Documentation : https://docs.microsoft.com/en-us/azure/service-fabric/service-fabric-environment-variables-reference
 	EnvVarServiceFabric = "Fabric_NodeName"
 
-	TracingKey                       = "Tracing"
 	RequestTypeKey                   = "RequestType"
 	HostTypeKey                      = "Host"
 	KeyVaultConfiguredTag            = "UsesKeyVault"
