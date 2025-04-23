@@ -43,9 +43,8 @@ type AzureAppConfiguration struct {
 	onRefreshSuccess []func()
 	tracingOptions   tracing.Options
 
-	clientManager      *configurationClientManager
-	resolver           *keyVaultReferenceResolver
-	newKvRefreshClient func() refreshClient
+	clientManager *configurationClientManager
+	resolver      *keyVaultReferenceResolver
 
 	refreshInProgress atomic.Bool
 }
@@ -95,7 +94,6 @@ func Load(ctx context.Context, authentication AuthenticationOptions, options *Op
 		azappcfg.kvRefreshTimer = refresh.NewTimer(options.RefreshOptions.Interval)
 		azappcfg.watchedSettings = normalizedWatchedSettings(options.RefreshOptions.WatchedSettings)
 		azappcfg.sentinelETags = make(map[WatchedSetting]*azcore.ETag)
-		azappcfg.newKvRefreshClient = azappcfg.newKeyValueRefreshClient
 	}
 
 	if err := azappcfg.load(ctx); err != nil {
@@ -208,7 +206,7 @@ func (azappcfg *AzureAppConfiguration) Refresh(ctx context.Context) error {
 	}
 
 	// Attempt to refresh and check if any values were actually updated
-	refreshed, err := azappcfg.refreshKeyValues(ctx, azappcfg.newKvRefreshClient())
+	refreshed, err := azappcfg.refreshKeyValues(ctx, azappcfg.newKeyValueRefreshClient())
 	if err != nil {
 		return fmt.Errorf("failed to refresh configuration: %w", err)
 	}
