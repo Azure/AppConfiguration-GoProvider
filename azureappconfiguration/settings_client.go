@@ -6,6 +6,8 @@ package azureappconfiguration
 import (
 	"context"
 
+	"github.com/Azure/AppConfiguration-GoProvider/azureappconfiguration/internal/tracing"
+	"github.com/Azure/azure-sdk-for-go/sdk/azcore/policy"
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore/to"
 	"github.com/Azure/azure-sdk-for-go/sdk/data/azappconfig"
 )
@@ -16,8 +18,9 @@ type settingsResponse struct {
 }
 
 type selectorSettingsClient struct {
-	selectors []Selector
-	client    *azappconfig.Client
+	selectors      []Selector
+	client         *azappconfig.Client
+	tracingOptions tracing.Options
 }
 
 type settingsClient interface {
@@ -25,6 +28,10 @@ type settingsClient interface {
 }
 
 func (s *selectorSettingsClient) getSettings(ctx context.Context) (*settingsResponse, error) {
+	if s.tracingOptions.Enabled {
+		ctx = policy.WithHTTPHeader(ctx, tracing.CreateCorrelationContextHeader(ctx, s.tracingOptions))
+	}
+
 	settings := make([]azappconfig.Setting, 0)
 	for _, filter := range s.selectors {
 		selector := azappconfig.SettingSelector{

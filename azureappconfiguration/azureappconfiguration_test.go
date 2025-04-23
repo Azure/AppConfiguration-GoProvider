@@ -5,11 +5,13 @@ package azureappconfiguration
 
 import (
 	"context"
+	"net/http"
 	"net/url"
 	"sync"
 	"testing"
 	"time"
 
+	"github.com/Azure/AppConfiguration-GoProvider/azureappconfiguration/internal/tracing"
 	"github.com/Azure/azure-sdk-for-go/sdk/data/azappconfig"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
@@ -733,4 +735,114 @@ func TestLoadKeyValues_WithConcurrentKeyVaultReferences(t *testing.T) {
 			assert.Less(t, timeDiff, 10*time.Millisecond, "Expected resolver calls to start concurrently")
 		}
 	}
+}
+
+// mockTracingClient is a mock client that captures the HTTP header containing the correlation context
+type mockTracingClient struct {
+	mock.Mock
+	capturedHeader http.Header
+}
+
+func (m *mockTracingClient) getSettings(ctx context.Context) (*settingsResponse, error) {
+	// Extract header from context
+	if header, ok := ctx.Value(tracing.CorrelationContextHeader).(http.Header); ok {
+		m.capturedHeader = header
+	}
+
+	args := m.Called(ctx)
+	return args.Get(0).(*settingsResponse), args.Error(1)
+}
+
+func TestLoadKeyValues_WithAIContentTypes(t *testing.T) {
+	ctx := context.Background()
+	mockClient := new(mockSettingsClient)
+
+	// Create settings with different content types
+	value1 := "regular value"
+	value2 := `{"ai": "configuration"}`
+	value3 := `{"ai": "chat completion"}`
+	mockResponse := &settingsResponse{
+		settings: []azappconfig.Setting{
+			{Key: toPtr("key1"), Value: &value1, ContentType: toPtr("text/plain")},
+			{Key: toPtr("key2"), Value: &value2, ContentType: toPtr("application/json; profile=\"https://azconfig.io/mime-profiles/ai\"")},
+			{Key: toPtr("key3"), Value: &value3, ContentType: toPtr("application/json; profile=\"https://azconfig.io/mime-profiles/ai/chat-completion\"")},
+		},
+	}
+	mockClient.On("getSettings", ctx).Return(mockResponse, nil)
+
+	// Create the app configuration with tracing enabled
+	azappcfg := &AzureAppConfiguration{
+		clientManager: &configurationClientManager{
+			staticClient: &configurationClientWrapper{client: &azappconfig.Client{}},
+		},
+		kvSelectors: deduplicateSelectors([]Selector{}),
+		keyValues:   make(map[string]any),
+		tracingOptions: tracing.Options{
+			Enabled: true,
+		},
+	}
+
+	// Load the key values
+	err := azappcfg.loadKeyValues(ctx, mockClient)
+	assert.NoError(t, err)
+
+	// Verify the tracing options were updated correctly
+	assert.True(t, azappcfg.tracingOptions.UseAIConfiguration, "UseAIConfiguration flag should be set to true")
+	assert.True(t, azappcfg.tracingOptions.UseAIChatCompletionConfiguration, "UseAIChatCompletionConfiguration flag should be set to true")
+
+	// Verify the data was loaded correctly
+	assert.Equal(t, &value1, azappcfg.keyValues["key1"])
+	assert.Equal(t, map[string]interface{}{"ai": "configuration"}, azappcfg.keyValues["key2"])
+	assert.Equal(t, map[string]interface{}{"ai": "chat completion"}, azappcfg.keyValues["key3"])
+}
+
+func TestCorrelationContextHeader(t *testing.T) {
+	ctx := context.Background()
+	mockClient := new(mockTracingClient)
+
+	// Create settings with different content types
+	value1 := "regular value"
+	value2 := `{"ai": "configuration"}`
+	value3 := `{"ai": "chat completion"}`
+	mockResponse := &settingsResponse{
+		settings: []azappconfig.Setting{
+			{Key: toPtr("key1"), Value: &value1, ContentType: toPtr("text/plain")},
+			{Key: toPtr("key2"), Value: &value2, ContentType: toPtr("application/json; profile=\"https://azconfig.io/mime-profiles/ai\"")},
+			{Key: toPtr("key3"), Value: &value3, ContentType: toPtr("application/json; profile=\"https://azconfig.io/mime-profiles/ai/chat-completion\"")},
+		},
+	}
+	mockClient.On("getSettings", ctx).Return(mockResponse, nil)
+
+	// Create app configuration with key vault configured
+	tracingOptions := tracing.Options{
+		Enabled:            true,
+		KeyVaultConfigured: true,
+		Host:               tracing.HostTypeAzureWebApp,
+	}
+
+	azappcfg := &AzureAppConfiguration{
+		clientManager: &configurationClientManager{
+			staticClient: &configurationClientWrapper{client: &azappconfig.Client{}},
+		},
+		kvSelectors:    deduplicateSelectors([]Selector{}),
+		keyValues:      make(map[string]any),
+		tracingOptions: tracingOptions,
+	}
+
+	// Load the key values
+	err := azappcfg.loadKeyValues(ctx, mockClient)
+	assert.NoError(t, err)
+
+	// Verify the header contains all expected values
+	header := tracing.CreateCorrelationContextHeader(ctx, azappcfg.tracingOptions)
+	correlationCtx := header.Get(tracing.CorrelationContextHeader)
+
+	assert.Contains(t, correlationCtx, tracing.HostTypeKey+"="+string(tracing.HostTypeAzureWebApp))
+	assert.Contains(t, correlationCtx, tracing.KeyVaultConfiguredTag)
+
+	// Verify AI features are detected and included in the header
+	assert.True(t, azappcfg.tracingOptions.UseAIConfiguration)
+	assert.True(t, azappcfg.tracingOptions.UseAIChatCompletionConfiguration)
+	assert.Contains(t, correlationCtx, tracing.FeaturesKey+"="+
+		tracing.AIConfigurationTag+tracing.DelimiterPlus+tracing.AIChatCompletionConfigurationTag)
 }
