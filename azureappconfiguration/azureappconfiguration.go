@@ -43,9 +43,8 @@ type AzureAppConfiguration struct {
 	onRefreshSuccess []func()
 	tracingOptions   tracing.Options
 
-	clientManager      *configurationClientManager
-	resolver           *keyVaultReferenceResolver
-	newKvRefreshClient func() refreshClient
+	clientManager *configurationClientManager
+	resolver      *keyVaultReferenceResolver
 
 	refreshInProgress atomic.Bool
 }
@@ -95,7 +94,6 @@ func Load(ctx context.Context, authentication AuthenticationOptions, options *Op
 		azappcfg.kvRefreshTimer = refresh.NewTimer(options.RefreshOptions.Interval)
 		azappcfg.watchedSettings = normalizedWatchedSettings(options.RefreshOptions.WatchedSettings)
 		azappcfg.sentinelETags = make(map[WatchedSetting]*azcore.ETag)
-		azappcfg.newKvRefreshClient = azappcfg.newKeyValueRefreshClient
 	}
 
 	if err := azappcfg.load(ctx); err != nil {
@@ -207,8 +205,21 @@ func (azappcfg *AzureAppConfiguration) Refresh(ctx context.Context) error {
 		return nil
 	}
 
+	loader := &selectorSettingsClient{
+		selectors:      azappcfg.kvSelectors,
+		tracingOptions: azappcfg.tracingOptions,
+	}
+	monitor := &etagSettingClient{
+		eTags:          azappcfg.sentinelETags,
+		tracingOptions: azappcfg.tracingOptions,
+	}
+	sentinels := &watchedSettingClient{
+		watchedSettings: azappcfg.watchedSettings,
+		tracingOptions:  azappcfg.tracingOptions,
+	}
+
 	// Attempt to refresh and check if any values were actually updated
-	refreshed, err := azappcfg.refreshKeyValues(ctx, azappcfg.newKvRefreshClient())
+	refreshed, err := azappcfg.refreshKeyValues(ctx, loader, monitor, sentinels)
 	if err != nil {
 		return fmt.Errorf("failed to refresh configuration: %w", err)
 	}
@@ -243,7 +254,6 @@ func (azappcfg *AzureAppConfiguration) load(ctx context.Context) error {
 	eg.Go(func() error {
 		keyValuesClient := &selectorSettingsClient{
 			selectors:      azappcfg.kvSelectors,
-			client:         azappcfg.clientManager.staticClient.client,
 			tracingOptions: azappcfg.tracingOptions,
 		}
 		return azappcfg.loadKeyValues(egCtx, keyValuesClient)
@@ -253,7 +263,6 @@ func (azappcfg *AzureAppConfiguration) load(ctx context.Context) error {
 		eg.Go(func() error {
 			watchedClient := &watchedSettingClient{
 				watchedSettings: azappcfg.watchedSettings,
-				client:          azappcfg.clientManager.staticClient.client,
 				tracingOptions:  azappcfg.tracingOptions,
 			}
 			return azappcfg.loadWatchedSettings(egCtx, watchedClient)
@@ -264,7 +273,7 @@ func (azappcfg *AzureAppConfiguration) load(ctx context.Context) error {
 }
 
 func (azappcfg *AzureAppConfiguration) loadWatchedSettings(ctx context.Context, settingsClient settingsClient) error {
-	settingsResponse, err := settingsClient.getSettings(ctx)
+	settingsResponse, err := settingsClient.getSettings(ctx, azappcfg.clientManager.staticClient.client)
 	if err != nil {
 		return err
 	}
@@ -278,7 +287,7 @@ func (azappcfg *AzureAppConfiguration) loadWatchedSettings(ctx context.Context, 
 }
 
 func (azappcfg *AzureAppConfiguration) loadKeyValues(ctx context.Context, settingsClient settingsClient) error {
-	settingsResponse, err := settingsClient.getSettings(ctx)
+	settingsResponse, err := settingsClient.getSettings(ctx, azappcfg.clientManager.staticClient.client)
 	if err != nil {
 		return err
 	}
@@ -365,14 +374,14 @@ func (azappcfg *AzureAppConfiguration) loadKeyValues(ctx context.Context, settin
 
 // refreshKeyValues checks if any watched settings have changed and reloads configuration if needed
 // Returns true if configuration was actually refreshed, false otherwise
-func (azappcfg *AzureAppConfiguration) refreshKeyValues(ctx context.Context, refreshClient refreshClient) (bool, error) {
+func (azappcfg *AzureAppConfiguration) refreshKeyValues(ctx context.Context, monitor settingsClient, loader settingsClient, sentinels settingsClient) (bool, error) {
 	// Check if any ETags have changed
-	eTagChanged, err := refreshClient.monitor.checkIfETagChanged(ctx)
+	eTagChanged, err := monitor.getSettings(ctx, azappcfg.clientManager.staticClient.client)
 	if err != nil {
 		return false, fmt.Errorf("failed to check if watched settings have changed: %w", err)
 	}
 
-	if !eTagChanged {
+	if eTagChanged == nil {
 		// No changes detected, reset timer and return
 		azappcfg.kvRefreshTimer.Reset()
 		return false, nil
@@ -383,13 +392,13 @@ func (azappcfg *AzureAppConfiguration) refreshKeyValues(ctx context.Context, ref
 
 	// Reload key values in one goroutine
 	eg.Go(func() error {
-		settingsClient := refreshClient.loader
+		settingsClient := loader
 		return azappcfg.loadKeyValues(egCtx, settingsClient)
 	})
 
 	if len(azappcfg.watchedSettings) > 0 {
 		eg.Go(func() error {
-			watchedClient := refreshClient.sentinels
+			watchedClient := sentinels
 			return azappcfg.loadWatchedSettings(egCtx, watchedClient)
 		})
 	}
@@ -497,24 +506,4 @@ func normalizedWatchedSettings(s []WatchedSetting) []WatchedSetting {
 	}
 
 	return result
-}
-
-func (azappcfg *AzureAppConfiguration) newKeyValueRefreshClient() refreshClient {
-	return refreshClient{
-		loader: &selectorSettingsClient{
-			selectors:      azappcfg.kvSelectors,
-			client:         azappcfg.clientManager.staticClient.client,
-			tracingOptions: azappcfg.tracingOptions,
-		},
-		monitor: &watchedSettingClient{
-			eTags:          azappcfg.sentinelETags,
-			client:         azappcfg.clientManager.staticClient.client,
-			tracingOptions: azappcfg.tracingOptions,
-		},
-		sentinels: &watchedSettingClient{
-			watchedSettings: azappcfg.watchedSettings,
-			client:          azappcfg.clientManager.staticClient.client,
-			tracingOptions:  azappcfg.tracingOptions,
-		},
-	}
 }
