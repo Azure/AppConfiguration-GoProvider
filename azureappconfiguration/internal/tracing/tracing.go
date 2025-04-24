@@ -11,7 +11,7 @@ import (
 )
 
 type RequestType string
-
+type RequestTracingKey string
 type HostType string
 
 const (
@@ -32,7 +32,6 @@ const (
 	// Documentation : https://docs.microsoft.com/en-us/azure/service-fabric/service-fabric-environment-variables-reference
 	EnvVarServiceFabric = "Fabric_NodeName"
 
-	RequestTracingKey                = "Tracing"
 	RequestTypeKey                   = "RequestType"
 	HostTypeKey                      = "Host"
 	KeyVaultConfiguredTag            = "UsesKeyVault"
@@ -50,6 +49,7 @@ const (
 
 type Options struct {
 	Enabled                          bool
+	InitialLoadFinished              bool
 	Host                             HostType
 	KeyVaultConfigured               bool
 	UseAIConfiguration               bool
@@ -75,12 +75,10 @@ func CreateCorrelationContextHeader(ctx context.Context, options Options) http.H
 	header := http.Header{}
 	output := make([]string, 0)
 
-	if tracing := ctx.Value(RequestTracingKey); tracing != nil {
-		if tracing.(RequestType) == RequestTypeStartUp {
-			output = append(output, RequestTypeKey+"="+string(RequestTypeStartUp))
-		} else if tracing.(RequestType) == RequestTypeWatch {
-			output = append(output, RequestTypeKey+"="+string(RequestTypeWatch))
-		}
+	if !options.InitialLoadFinished {
+		output = append(output, RequestTypeKey+"="+string(RequestTypeStartUp))
+	} else {
+		output = append(output, RequestTypeKey+"="+string(RequestTypeWatch))
 	}
 
 	if options.Host != "" {

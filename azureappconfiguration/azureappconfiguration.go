@@ -21,23 +21,32 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 
+	"github.com/Azure/AppConfiguration-GoProvider/azureappconfiguration/internal/refresh"
 	"github.com/Azure/AppConfiguration-GoProvider/azureappconfiguration/internal/tracing"
 	"github.com/Azure/AppConfiguration-GoProvider/azureappconfiguration/internal/tree"
+	"github.com/Azure/azure-sdk-for-go/sdk/azcore"
 	decoder "github.com/go-viper/mapstructure/v2"
 	"golang.org/x/sync/errgroup"
 )
 
 // An AzureAppConfiguration is a configuration provider that stores and manages settings sourced from Azure App Configuration.
 type AzureAppConfiguration struct {
-	keyValues    map[string]any
-	kvSelectors  []Selector
-	trimPrefixes []string
+	keyValues       map[string]any
+	kvSelectors     []Selector
+	trimPrefixes    []string
+	watchedSettings []WatchedSetting
+
+	sentinelETags    map[WatchedSetting]*azcore.ETag
+	kvRefreshTimer   refresh.Condition
+	onRefreshSuccess []func()
+	tracingOptions   tracing.Options
 
 	clientManager *configurationClientManager
 	resolver      *keyVaultReferenceResolver
 
-	tracingOptions tracing.Options
+	refreshInProgress atomic.Bool
 }
 
 // Load initializes a new AzureAppConfiguration instance and loads the configuration data from
@@ -53,6 +62,10 @@ type AzureAppConfiguration struct {
 // - An error if the operation fails, such as authentication errors or connectivity issues
 func Load(ctx context.Context, authentication AuthenticationOptions, options *Options) (*AzureAppConfiguration, error) {
 	if err := verifyAuthenticationOptions(authentication); err != nil {
+		return nil, err
+	}
+
+	if err := verifyOptions(options); err != nil {
 		return nil, err
 	}
 
@@ -77,9 +90,17 @@ func Load(ctx context.Context, authentication AuthenticationOptions, options *Op
 		credential:     options.KeyVaultOptions.Credential,
 	}
 
+	if options.RefreshOptions.Enabled {
+		azappcfg.kvRefreshTimer = refresh.NewTimer(options.RefreshOptions.Interval)
+		azappcfg.watchedSettings = normalizedWatchedSettings(options.RefreshOptions.WatchedSettings)
+		azappcfg.sentinelETags = make(map[WatchedSetting]*azcore.ETag)
+	}
+
 	if err := azappcfg.load(ctx); err != nil {
 		return nil, err
 	}
+	// Set the initial load finished flag
+	azappcfg.tracingOptions.InitialLoadFinished = true
 
 	return azappcfg, nil
 }
@@ -150,14 +171,107 @@ func (azappcfg *AzureAppConfiguration) GetBytes(options *ConstructionOptions) ([
 	return json.Marshal(azappcfg.constructHierarchicalMap(options.Separator))
 }
 
-func (azappcfg *AzureAppConfiguration) load(ctx context.Context) error {
-	keyValuesClient := &selectorSettingsClient{
-		selectors:      azappcfg.kvSelectors,
-		client:         azappcfg.clientManager.staticClient.client,
-		tracingOptions: azappcfg.tracingOptions,
+// Refresh manually triggers a refresh of the configuration from Azure App Configuration.
+// It checks if any watched settings have changed, and if so, reloads all configuration data.
+//
+// The refresh only occurs if:
+// - Refresh has been configured with RefreshOptions when the client was created
+// - The configured refresh interval has elapsed since the last refresh
+// - No other refresh operation is currently in progress
+//
+// If the configuration has changed, any callback functions registered with OnRefreshSuccess will be executed.
+//
+// Parameters:
+// - ctx: The context for the operation.
+//
+// Returns:
+// - An error if refresh is not configured, or if the refresh operation fails
+func (azappcfg *AzureAppConfiguration) Refresh(ctx context.Context) error {
+	if azappcfg.kvRefreshTimer == nil {
+		return fmt.Errorf("refresh is not configured")
 	}
 
-	return azappcfg.loadKeyValues(ctx, keyValuesClient)
+	// Try to set refreshInProgress to true, returning false if it was already true
+	if !azappcfg.refreshInProgress.CompareAndSwap(false, true) {
+		return nil // Another refresh is already in progress
+	}
+
+	// Reset the flag when we're done
+	defer azappcfg.refreshInProgress.Store(false)
+
+	// Check if it's time to perform a refresh based on the timer interval
+	if !azappcfg.kvRefreshTimer.ShouldRefresh() {
+		return nil
+	}
+
+	// Attempt to refresh and check if any values were actually updated
+	refreshed, err := azappcfg.refreshKeyValues(ctx, azappcfg.newKeyValueRefreshClient())
+	if err != nil {
+		return fmt.Errorf("failed to refresh configuration: %w", err)
+	}
+
+	// Only execute callbacks if actual changes were applied
+	if refreshed {
+		for _, callback := range azappcfg.onRefreshSuccess {
+			if callback != nil {
+				callback()
+			}
+		}
+	}
+
+	return nil
+}
+
+// OnRefreshSuccess registers a callback function that will be executed whenever the configuration
+// is successfully refreshed and actual changes were detected.
+//
+// Multiple callback functions can be registered, and they will be executed in the order they were added.
+// Callbacks are only executed when configuration values actually change. They run synchronously
+// in the thread that initiated the refresh.
+//
+// Parameters:
+// - callback: A function with no parameters that will be called after a successful refresh
+func (azappcfg *AzureAppConfiguration) OnRefreshSuccess(callback func()) {
+	azappcfg.onRefreshSuccess = append(azappcfg.onRefreshSuccess, callback)
+}
+
+func (azappcfg *AzureAppConfiguration) load(ctx context.Context) error {
+	eg, egCtx := errgroup.WithContext(ctx)
+	eg.Go(func() error {
+		keyValuesClient := &selectorSettingsClient{
+			selectors:      azappcfg.kvSelectors,
+			client:         azappcfg.clientManager.staticClient.client,
+			tracingOptions: azappcfg.tracingOptions,
+		}
+		return azappcfg.loadKeyValues(egCtx, keyValuesClient)
+	})
+
+	if azappcfg.kvRefreshTimer != nil && len(azappcfg.watchedSettings) > 0 {
+		eg.Go(func() error {
+			watchedClient := &watchedSettingClient{
+				watchedSettings: azappcfg.watchedSettings,
+				client:          azappcfg.clientManager.staticClient.client,
+				tracingOptions:  azappcfg.tracingOptions,
+			}
+			return azappcfg.loadWatchedSettings(egCtx, watchedClient)
+		})
+	}
+
+	return eg.Wait()
+}
+
+func (azappcfg *AzureAppConfiguration) loadWatchedSettings(ctx context.Context, settingsClient settingsClient) error {
+	settingsResponse, err := settingsClient.getSettings(ctx)
+	if err != nil {
+		return err
+	}
+
+	// Store ETags for all watched settings
+	if settingsResponse != nil && settingsResponse.watchedETags != nil {
+		azappcfg.sentinelETags = settingsResponse.watchedETags
+	}
+
+	return nil
 }
 
 func (azappcfg *AzureAppConfiguration) loadKeyValues(ctx context.Context, settingsClient settingsClient) error {
@@ -246,6 +360,48 @@ func (azappcfg *AzureAppConfiguration) loadKeyValues(ctx context.Context, settin
 	return nil
 }
 
+// refreshKeyValues checks if any watched settings have changed and reloads configuration if needed
+// Returns true if configuration was actually refreshed, false otherwise
+func (azappcfg *AzureAppConfiguration) refreshKeyValues(ctx context.Context, refreshClient refreshClient) (bool, error) {
+	// Check if any ETags have changed
+	eTagChanged, err := refreshClient.monitor.checkIfETagChanged(ctx)
+	if err != nil {
+		return false, fmt.Errorf("failed to check if watched settings have changed: %w", err)
+	}
+
+	if !eTagChanged {
+		// No changes detected, reset timer and return
+		azappcfg.kvRefreshTimer.Reset()
+		return false, nil
+	}
+
+	// Use an errgroup to reload key values and watched settings concurrently
+	eg, egCtx := errgroup.WithContext(ctx)
+
+	// Reload key values in one goroutine
+	eg.Go(func() error {
+		settingsClient := refreshClient.loader
+		return azappcfg.loadKeyValues(egCtx, settingsClient)
+	})
+
+	if len(azappcfg.watchedSettings) > 0 {
+		eg.Go(func() error {
+			watchedClient := refreshClient.sentinels
+			return azappcfg.loadWatchedSettings(egCtx, watchedClient)
+		})
+	}
+
+	// Wait for all reloads to complete
+	if err := eg.Wait(); err != nil {
+		// Don't reset the timer if reload failed
+		return false, fmt.Errorf("failed to reload configuration: %w", err)
+	}
+
+	// Reset the timer only after successful refresh
+	azappcfg.kvRefreshTimer.Reset()
+	return true, nil
+}
+
 func (azappcfg *AzureAppConfiguration) trimPrefix(key string) string {
 	result := key
 	for _, prefix := range azappcfg.trimPrefixes {
@@ -323,4 +479,39 @@ func configureTracingOptions(options *Options) tracing.Options {
 	}
 
 	return tracingOption
+}
+
+func normalizedWatchedSettings(s []WatchedSetting) []WatchedSetting {
+	result := make([]WatchedSetting, len(s))
+	for i, setting := range s {
+		// Make a copy of the setting
+		normalizedSetting := setting
+		if normalizedSetting.Label == "" {
+			normalizedSetting.Label = defaultLabel
+		}
+
+		result[i] = normalizedSetting
+	}
+
+	return result
+}
+
+func (azappcfg *AzureAppConfiguration) newKeyValueRefreshClient() refreshClient {
+	return refreshClient{
+		loader: &selectorSettingsClient{
+			selectors:      azappcfg.kvSelectors,
+			client:         azappcfg.clientManager.staticClient.client,
+			tracingOptions: azappcfg.tracingOptions,
+		},
+		monitor: &watchedSettingClient{
+			eTags:          azappcfg.sentinelETags,
+			client:         azappcfg.clientManager.staticClient.client,
+			tracingOptions: azappcfg.tracingOptions,
+		},
+		sentinels: &watchedSettingClient{
+			watchedSettings: azappcfg.watchedSettings,
+			client:          azappcfg.clientManager.staticClient.client,
+			tracingOptions:  azappcfg.tracingOptions,
+		},
+	}
 }
