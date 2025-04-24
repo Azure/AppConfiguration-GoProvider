@@ -17,9 +17,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"maps"
 	"os"
 	"strconv"
-	"maps"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -46,10 +46,10 @@ type AzureAppConfiguration struct {
 	kvRefreshTimer     refresh.Condition
 	secretRefreshTimer refresh.Condition
 	onRefreshSuccess   []func()
-	tracingOptions   tracing.Options
+	tracingOptions     tracing.Options
 
-	clientManager      *configurationClientManager
-	resolver           *keyVaultReferenceResolver
+	clientManager *configurationClientManager
+	resolver      *keyVaultReferenceResolver
 
 	refreshInProgress atomic.Bool
 }

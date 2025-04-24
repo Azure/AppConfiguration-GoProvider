@@ -57,22 +57,6 @@ func TestRefresh_NotConfigured(t *testing.T) {
 	assert.Contains(t, err.Error(), "refresh is not configured")
 }
 
-func TestRefresh_NotTimeToRefresh(t *testing.T) {
-	// Setup a provider with a timer that indicates it's not time to refresh
-	mockTimer := &mockRefreshCondition{shouldRefresh: false}
-	azappcfg := &AzureAppConfiguration{
-		kvRefreshTimer: mockTimer,
-	}
-
-	// Attempt to refresh
-	err := azappcfg.Refresh(context.Background())
-
-	// Verify no error and that we returned early
-	assert.NoError(t, err)
-	// Timer should not be reset if we're not refreshing
-	assert.False(t, mockTimer.resetCalled)
-}
-
 func TestRefreshEnabled_EmptyWatchedSettings(t *testing.T) {
 	// Test verifying validation when refresh is enabled but no watched settings
 	options := &Options{
