@@ -24,6 +24,5 @@ const (
 // Refresh interval constants
 const (
 	// minimalRefreshInterval is the minimum allowed refresh interval for key-value settings
-	minimalRefreshInterval       time.Duration = time.Second
-	minimalSecretRefreshInterval time.Duration = 1 * time.Minute
+	minimalRefreshInterval time.Duration = time.Second
 )

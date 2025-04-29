@@ -35,7 +35,6 @@ import (
 // An AzureAppConfiguration is a configuration provider that stores and manages settings sourced from Azure App Configuration.
 type AzureAppConfiguration struct {
 	keyValues map[string]any
-	secrets   map[string]string
 
 	kvSelectors     []Selector
 	trimPrefixes    []string
@@ -86,7 +85,6 @@ func Load(ctx context.Context, authentication AuthenticationOptions, options *Op
 	azappcfg := new(AzureAppConfiguration)
 	azappcfg.tracingOptions = configureTracingOptions(options)
 	azappcfg.keyValues = make(map[string]any)
-	azappcfg.secrets = make(map[string]string)
 	azappcfg.kvSelectors = deduplicateSelectors(options.Selectors)
 	azappcfg.trimPrefixes = options.TrimKeyPrefixes
 	azappcfg.clientManager = clientManager
@@ -351,15 +349,15 @@ func (azappcfg *AzureAppConfiguration) loadKeyValues(ctx context.Context, settin
 		return fmt.Errorf("failed to load secrets: %w", err)
 	}
 
+	maps.Copy(kvSettings, secrets)
 	azappcfg.keyValues = kvSettings
-	azappcfg.secrets = secrets
 	azappcfg.keyVaultRefs = unversionedKVRefs
 
 	return nil
 }
 
-func (azappcfg *AzureAppConfiguration) loadSecret(ctx context.Context, keyVaultRefs map[string]string) (map[string]string, error) {
-	secrets := make(map[string]string)
+func (azappcfg *AzureAppConfiguration) loadSecret(ctx context.Context, keyVaultRefs map[string]string) (map[string]any, error) {
+	secrets := make(map[string]any)
 	if len(keyVaultRefs) == 0 {
 		return secrets, nil
 	}
@@ -461,17 +459,17 @@ func (azappcfg *AzureAppConfiguration) refreshSecrets(ctx context.Context) (bool
 
 	// Check if any secrets have changed
 	changed := false
-	secrets := make(map[string]string)
-	maps.Copy(secrets, azappcfg.secrets)
+	keyValues := make(map[string]any)
+	maps.Copy(keyValues, azappcfg.keyValues)
 	for key, newSecret := range unversionedSecrets {
-		if oldSecret, exists := secrets[key]; !exists || oldSecret != newSecret {
+		if oldSecret, exists := keyValues[key]; !exists || oldSecret != newSecret {
 			changed = true
-			secrets[key] = newSecret
+			keyValues[key] = newSecret
 		}
 	}
 
 	// Reset the timer only after successful refresh
-	azappcfg.secrets = secrets
+	azappcfg.keyValues = keyValues
 	azappcfg.secretRefreshTimer.Reset()
 	return changed, nil
 }
@@ -527,10 +525,6 @@ func deduplicateSelectors(selectors []Selector) []Selector {
 func (azappcfg *AzureAppConfiguration) constructHierarchicalMap(separator string) map[string]any {
 	tree := &tree.Tree{}
 	for k, v := range azappcfg.keyValues {
-		tree.Insert(strings.Split(k, separator), v)
-	}
-
-	for k, v := range azappcfg.secrets {
 		tree.Insert(strings.Split(k, separator), v)
 	}
 
