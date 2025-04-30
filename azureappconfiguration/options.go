@@ -105,7 +105,7 @@ type KeyVaultOptions struct {
 	// When provided, this takes precedence over using the default resolver with Credential.
 	SecretResolver SecretResolver
 
-	// RefreshOptions specifies the behavior of key vault reference resolution refresh
+	// RefreshOptions specifies the behavior of Key Vault reference resolution refresh
 	RefreshOptions RefreshOptions
 }
 
