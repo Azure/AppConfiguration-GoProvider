@@ -28,6 +28,7 @@ import (
 	"github.com/Azure/AppConfiguration-GoProvider/azureappconfiguration/internal/tracing"
 	"github.com/Azure/AppConfiguration-GoProvider/azureappconfiguration/internal/tree"
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore"
+	"github.com/Azure/azure-sdk-for-go/sdk/data/azappconfig"
 	decoder "github.com/go-viper/mapstructure/v2"
 	"golang.org/x/sync/errgroup"
 )
@@ -214,13 +215,13 @@ func (azappcfg *AzureAppConfiguration) Refresh(ctx context.Context) error {
 		return fmt.Errorf("failed to refresh configuration: %w", err)
 	}
 
-	// Attempt to refresh secrets and check if any values were actually updated
-	// Key Value refresh process includes secret refresh process, no need to refresh secrets if key values are refreshed
+	// Attempt to refresh Key Vault secret and check if any values were actually updated
+	// No need to refresh Key Vault secret if key values are refreshed
 	secretRefreshed := false
 	if !keyValueRefreshed {
-		secretRefreshed, err = azappcfg.refreshSecrets(ctx)
+		secretRefreshed, err = azappcfg.refreshKeyVaultSecrets(ctx)
 		if err != nil {
-			return fmt.Errorf("failed to refresh secrets: %w", err)
+			return fmt.Errorf("failed to refresh Azure Key Vault secret: %w", err)
 		}
 	}
 
@@ -294,9 +295,8 @@ func (azappcfg *AzureAppConfiguration) loadKeyValues(ctx context.Context, settin
 		return err
 	}
 
-	var useAIConfiguration, useAIChatCompletionConfiguration bool
-	kvSettings := make(map[string]any, len(settingsResponse.settings))
-	keyVaultRefs := make(map[string]string)
+	// de-duplicate settings
+	rawSettings := make(map[string]azappconfig.Setting, len(settingsResponse.settings))
 	for _, setting := range settingsResponse.settings {
 		if setting.Key == nil {
 			continue
@@ -306,7 +306,13 @@ func (azappcfg *AzureAppConfiguration) loadKeyValues(ctx context.Context, settin
 			log.Printf("Key of the setting '%s' is trimmed to the empty string, just ignore it", *setting.Key)
 			continue
 		}
+		rawSettings[trimmedKey] = setting
+	}
 
+	var useAIConfiguration, useAIChatCompletionConfiguration bool
+	kvSettings := make(map[string]any, len(settingsResponse.settings))
+	keyVaultRefs := make(map[string]string)
+	for trimmedKey, setting := range rawSettings {
 		if setting.ContentType == nil || setting.Value == nil {
 			kvSettings[trimmedKey] = setting.Value
 			continue
@@ -340,7 +346,7 @@ func (azappcfg *AzureAppConfiguration) loadKeyValues(ctx context.Context, settin
 	azappcfg.tracingOptions.UseAIConfiguration = useAIConfiguration
 	azappcfg.tracingOptions.UseAIChatCompletionConfiguration = useAIChatCompletionConfiguration
 
-	secrets, err := azappcfg.loadSecret(ctx, keyVaultRefs)
+	secrets, err := azappcfg.fetchKeyVaultSecrets(ctx, keyVaultRefs)
 	if err != nil {
 		return fmt.Errorf("failed to load secrets: %w", err)
 	}
@@ -352,7 +358,7 @@ func (azappcfg *AzureAppConfiguration) loadKeyValues(ctx context.Context, settin
 	return nil
 }
 
-func (azappcfg *AzureAppConfiguration) loadSecret(ctx context.Context, keyVaultRefs map[string]string) (map[string]any, error) {
+func (azappcfg *AzureAppConfiguration) fetchKeyVaultSecrets(ctx context.Context, keyVaultRefs map[string]string) (map[string]any, error) {
 	secrets := make(map[string]any)
 	if len(keyVaultRefs) == 0 {
 		return secrets, nil
@@ -436,7 +442,7 @@ func (azappcfg *AzureAppConfiguration) refreshKeyValues(ctx context.Context, ref
 	return true, nil
 }
 
-func (azappcfg *AzureAppConfiguration) refreshSecrets(ctx context.Context) (bool, error) {
+func (azappcfg *AzureAppConfiguration) refreshKeyVaultSecrets(ctx context.Context) (bool, error) {
 	if azappcfg.secretRefreshTimer == nil ||
 		!azappcfg.secretRefreshTimer.ShouldRefresh() {
 		// Timer not expired, no need to refresh
@@ -448,7 +454,7 @@ func (azappcfg *AzureAppConfiguration) refreshSecrets(ctx context.Context) (bool
 		return false, nil
 	}
 
-	unversionedSecrets, err := azappcfg.loadSecret(ctx, azappcfg.keyVaultRefs)
+	unversionedSecrets, err := azappcfg.fetchKeyVaultSecrets(ctx, azappcfg.keyVaultRefs)
 	if err != nil {
 		return false, fmt.Errorf("failed to refresh secrets: %w", err)
 	}
