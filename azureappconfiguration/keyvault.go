@@ -140,3 +140,19 @@ func parse(reference string) (*secretMetadata, error) {
 		version: secretVersion,
 	}, nil
 }
+
+func getUnversionedKeyVaultRefs(refs map[string]string) map[string]string {
+	unversionedRefs := make(map[string]string)
+	for key, value := range refs {
+		var kvRef keyVaultReference
+		// If it is an invalid key vault reference, error will be returned when resolveSecret is called
+		json.Unmarshal([]byte(value), &kvRef)
+
+		// Parse the URI to get metadata (host, secret name, version)
+		if secretMeta, _ := parse(kvRef.URI); secretMeta != nil && secretMeta.version == "" {
+			unversionedRefs[key] = value
+		}
+	}
+
+	return unversionedRefs
+}

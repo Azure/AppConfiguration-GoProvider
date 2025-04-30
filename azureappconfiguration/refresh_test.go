@@ -54,7 +54,7 @@ func TestRefresh_NotConfigured(t *testing.T) {
 
 	// Verify that an error is returned
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "refresh is not configured")
+	assert.Contains(t, err.Error(), "refresh is not enabled for key values or key vault data")
 }
 
 func TestRefreshEnabled_EmptyWatchedSettings(t *testing.T) {

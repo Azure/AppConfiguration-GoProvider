@@ -197,7 +197,7 @@ func (azappcfg *AzureAppConfiguration) GetBytes(options *ConstructionOptions) ([
 // - An error if refresh is not configured, or if the refresh operation fails
 func (azappcfg *AzureAppConfiguration) Refresh(ctx context.Context) error {
 	if azappcfg.kvRefreshTimer == nil && azappcfg.secretRefreshTimer == nil {
-		return fmt.Errorf("refresh is not configured")
+		return fmt.Errorf("refresh is not enabled for key values or key vault data")
 	}
 
 	// Try to set refreshInProgress to true, returning false if it was already true
@@ -297,7 +297,6 @@ func (azappcfg *AzureAppConfiguration) loadKeyValues(ctx context.Context, settin
 	var useAIConfiguration, useAIChatCompletionConfiguration bool
 	kvSettings := make(map[string]any, len(settingsResponse.settings))
 	keyVaultRefs := make(map[string]string)
-	unversionedKVRefs := make(map[string]string)
 	for _, setting := range settingsResponse.settings {
 		if setting.Key == nil {
 			continue
@@ -318,9 +317,6 @@ func (azappcfg *AzureAppConfiguration) loadKeyValues(ctx context.Context, settin
 			continue // ignore feature flag while getting key value settings
 		case secretReferenceContentType:
 			keyVaultRefs[trimmedKey] = *setting.Value
-			if secretMetadata, _ := parse(*setting.Value); secretMetadata != nil && secretMetadata.version == "" {
-				unversionedKVRefs[trimmedKey] = *setting.Value
-			}
 		default:
 			if isJsonContentType(setting.ContentType) {
 				var v any
@@ -351,7 +347,7 @@ func (azappcfg *AzureAppConfiguration) loadKeyValues(ctx context.Context, settin
 
 	maps.Copy(kvSettings, secrets)
 	azappcfg.keyValues = kvSettings
-	azappcfg.keyVaultRefs = unversionedKVRefs
+	azappcfg.keyVaultRefs = getUnversionedKeyVaultRefs(keyVaultRefs)
 
 	return nil
 }
