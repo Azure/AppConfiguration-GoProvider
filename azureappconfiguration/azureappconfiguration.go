@@ -104,6 +104,7 @@ func Load(ctx context.Context, authentication AuthenticationOptions, options *Op
 	if options.KeyVaultOptions.RefreshOptions.Enabled {
 		azappcfg.secretRefreshTimer = refresh.NewTimer(options.KeyVaultOptions.RefreshOptions.Interval)
 		azappcfg.keyVaultRefs = make(map[string]string)
+		azappcfg.tracingOptions.KeyVaultRefreshConfigured = true
 	}
 
 	if err := azappcfg.load(ctx); err != nil {

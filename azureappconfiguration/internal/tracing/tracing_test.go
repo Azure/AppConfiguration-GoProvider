@@ -71,6 +71,20 @@ func TestCreateCorrelationContextHeader(t *testing.T) {
 		assert.Contains(t, corrContext, KeyVaultConfiguredTag)
 	})
 
+	t.Run("with KeyVaultRefresh configured", func(t *testing.T) {
+		ctx := context.Background()
+		options := Options{
+			KeyVaultConfigured: true,
+			KeyVaultRefreshConfigured: true,
+		}
+
+		header := CreateCorrelationContextHeader(ctx, options)
+
+		// Should contain KeyVaultRefreshConfiguredTag
+		corrContext := header.Get(CorrelationContextHeader)
+		assert.Contains(t, corrContext, KeyVaultRefreshConfiguredTag)
+	})
+
 	t.Run("with AI configuration", func(t *testing.T) {
 		ctx := context.Background()
 		options := Options{

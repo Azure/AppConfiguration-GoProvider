@@ -35,6 +35,7 @@ const (
 	RequestTypeKey                   = "RequestType"
 	HostTypeKey                      = "Host"
 	KeyVaultConfiguredTag            = "UsesKeyVault"
+	KeyVaultRefreshConfiguredTag     = "RefreshesKeyVault"
 	FeaturesKey                      = "Features"
 	AIConfigurationTag               = "AI"
 	AIChatCompletionConfigurationTag = "AICC"
@@ -52,6 +53,7 @@ type Options struct {
 	InitialLoadFinished              bool
 	Host                             HostType
 	KeyVaultConfigured               bool
+	KeyVaultRefreshConfigured        bool
 	UseAIConfiguration               bool
 	UseAIChatCompletionConfiguration bool
 }
@@ -87,7 +89,10 @@ func CreateCorrelationContextHeader(ctx context.Context, options Options) http.H
 
 	if options.KeyVaultConfigured {
 		output = append(output, KeyVaultConfiguredTag)
+	}
 
+	if options.KeyVaultRefreshConfigured {
+		output = append(output, KeyVaultRefreshConfiguredTag)
 	}
 
 	features := make([]string, 0)
