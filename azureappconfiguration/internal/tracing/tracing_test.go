@@ -74,7 +74,7 @@ func TestCreateCorrelationContextHeader(t *testing.T) {
 	t.Run("with KeyVaultRefresh configured", func(t *testing.T) {
 		ctx := context.Background()
 		options := Options{
-			KeyVaultConfigured: true,
+			KeyVaultConfigured:        true,
 			KeyVaultRefreshConfigured: true,
 		}
 

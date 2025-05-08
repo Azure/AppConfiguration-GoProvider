@@ -112,7 +112,6 @@ type KeyVaultOptions struct {
 // RefreshOptions contains optional parameters to configure the behavior of refresh
 type RefreshOptions struct {
 	// Interval specifies the minimum time interval between consecutive refresh operations
-	// Must be greater than 1 second.
 	Interval time.Duration
 
 	// Enabled specifies whether the provider should automatically refresh when data is changed.

@@ -199,7 +199,7 @@ func (azappcfg *AzureAppConfiguration) GetBytes(options *ConstructionOptions) ([
 // - An error if refresh is not configured, or if the refresh operation fails
 func (azappcfg *AzureAppConfiguration) Refresh(ctx context.Context) error {
 	if azappcfg.kvRefreshTimer == nil && azappcfg.secretRefreshTimer == nil {
-		return fmt.Errorf("refresh is not enabled for key values or key vault data")
+		return fmt.Errorf("refresh is not enabled for either key values or Key Vault secrets")
 	}
 
 	// Try to set refreshInProgress to true, returning false if it was already true
@@ -216,13 +216,13 @@ func (azappcfg *AzureAppConfiguration) Refresh(ctx context.Context) error {
 		return fmt.Errorf("failed to refresh configuration: %w", err)
 	}
 
-	// Attempt to refresh Key Vault secret and check if any values were actually updated
-	// No need to refresh Key Vault secret if key values are refreshed
+	// Attempt to reload Key Vault secrets and check if any values were actually updated
+	// No need to reload Key Vault secrets if key values are refreshed
 	secretRefreshed := false
 	if !keyValueRefreshed {
 		secretRefreshed, err = azappcfg.refreshKeyVaultSecrets(ctx)
 		if err != nil {
-			return fmt.Errorf("failed to refresh Azure Key Vault secret: %w", err)
+			return fmt.Errorf("failed to reload Key Vault secrets: %w", err)
 		}
 	}
 
@@ -347,9 +347,9 @@ func (azappcfg *AzureAppConfiguration) loadKeyValues(ctx context.Context, settin
 	azappcfg.tracingOptions.UseAIConfiguration = useAIConfiguration
 	azappcfg.tracingOptions.UseAIChatCompletionConfiguration = useAIChatCompletionConfiguration
 
-	secrets, err := azappcfg.fetchKeyVaultSecrets(ctx, keyVaultRefs)
+	secrets, err := azappcfg.loadKeyVaultSecrets(ctx, keyVaultRefs)
 	if err != nil {
-		return fmt.Errorf("failed to load secrets: %w", err)
+		return fmt.Errorf("failed to load Key Vault secrets: %w", err)
 	}
 
 	maps.Copy(kvSettings, secrets)
@@ -359,7 +359,7 @@ func (azappcfg *AzureAppConfiguration) loadKeyValues(ctx context.Context, settin
 	return nil
 }
 
-func (azappcfg *AzureAppConfiguration) fetchKeyVaultSecrets(ctx context.Context, keyVaultRefs map[string]string) (map[string]any, error) {
+func (azappcfg *AzureAppConfiguration) loadKeyVaultSecrets(ctx context.Context, keyVaultRefs map[string]string) (map[string]any, error) {
 	secrets := make(map[string]any)
 	if len(keyVaultRefs) == 0 {
 		return secrets, nil
@@ -455,9 +455,9 @@ func (azappcfg *AzureAppConfiguration) refreshKeyVaultSecrets(ctx context.Contex
 		return false, nil
 	}
 
-	unversionedSecrets, err := azappcfg.fetchKeyVaultSecrets(ctx, azappcfg.keyVaultRefs)
+	unversionedSecrets, err := azappcfg.loadKeyVaultSecrets(ctx, azappcfg.keyVaultRefs)
 	if err != nil {
-		return false, fmt.Errorf("failed to refresh secrets: %w", err)
+		return false, fmt.Errorf("failed to reload Key Vault secrets: %w", err)
 	}
 
 	// Check if any secrets have changed
