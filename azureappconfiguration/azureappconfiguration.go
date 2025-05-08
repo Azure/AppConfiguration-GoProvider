@@ -366,7 +366,7 @@ func (azappcfg *AzureAppConfiguration) loadKeyVaultSecrets(ctx context.Context, 
 	}
 
 	if azappcfg.resolver.credential == nil && azappcfg.resolver.secretResolver == nil {
-		return secrets, fmt.Errorf("no Key Vault credential or SecretResolver configured")
+		return secrets, fmt.Errorf("no Key Vault credential or SecretResolver was configured in KeyVaultOptions")
 	}
 
 	resolvedSecrets := sync.Map{}
