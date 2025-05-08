@@ -5,7 +5,10 @@ package azureappconfiguration
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
+	"net/url"
+	"sync"
 	"testing"
 	"time"
 
@@ -54,23 +57,7 @@ func TestRefresh_NotConfigured(t *testing.T) {
 
 	// Verify that an error is returned
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "refresh is not configured")
-}
-
-func TestRefresh_NotTimeToRefresh(t *testing.T) {
-	// Setup a provider with a timer that indicates it's not time to refresh
-	mockTimer := &mockRefreshCondition{shouldRefresh: false}
-	azappcfg := &AzureAppConfiguration{
-		kvRefreshTimer: mockTimer,
-	}
-
-	// Attempt to refresh
-	err := azappcfg.Refresh(context.Background())
-
-	// Verify no error and that we returned early
-	assert.NoError(t, err)
-	// Timer should not be reset if we're not refreshing
-	assert.False(t, mockTimer.resetCalled)
+	assert.Contains(t, err.Error(), "refresh is not enabled for either key values or Key Vault secrets")
 }
 
 func TestRefreshEnabled_EmptyWatchedSettings(t *testing.T) {
@@ -231,7 +218,7 @@ func (m *mockKvRefreshClient) getSettings(ctx context.Context) (*settingsRespons
 // TestRefreshKeyValues_NoChanges tests when no ETags change is detected
 func TestRefreshKeyValues_NoChanges(t *testing.T) {
 	// Setup mocks
-	mockTimer := &mockRefreshCondition{}
+	mockTimer := &mockRefreshCondition{shouldRefresh: true}
 	mockMonitor := &mockETagsClient{changed: false}
 	mockLoader := &mockKvRefreshClient{}
 	mockSentinels := &mockKvRefreshClient{}
@@ -262,7 +249,7 @@ func TestRefreshKeyValues_NoChanges(t *testing.T) {
 // TestRefreshKeyValues_ChangesDetected tests when ETags changed and reload succeeds
 func TestRefreshKeyValues_ChangesDetected(t *testing.T) {
 	// Setup mocks for successful refresh
-	mockTimer := &mockRefreshCondition{}
+	mockTimer := &mockRefreshCondition{shouldRefresh: true}
 	mockMonitor := &mockETagsClient{changed: true}
 	mockLoader := &mockKvRefreshClient{}
 	mockSentinels := &mockKvRefreshClient{}
@@ -294,7 +281,7 @@ func TestRefreshKeyValues_ChangesDetected(t *testing.T) {
 // TestRefreshKeyValues_LoaderError tests when loader client returns an error
 func TestRefreshKeyValues_LoaderError(t *testing.T) {
 	// Setup mocks with loader error
-	mockTimer := &mockRefreshCondition{}
+	mockTimer := &mockRefreshCondition{shouldRefresh: true}
 	mockMonitor := &mockETagsClient{changed: true}
 	mockLoader := &mockKvRefreshClient{err: fmt.Errorf("loader error")}
 	mockSentinels := &mockKvRefreshClient{}
@@ -325,7 +312,7 @@ func TestRefreshKeyValues_LoaderError(t *testing.T) {
 // TestRefreshKeyValues_SentinelError tests when sentinel client returns an error
 func TestRefreshKeyValues_SentinelError(t *testing.T) {
 	// Setup mocks with sentinel error
-	mockTimer := &mockRefreshCondition{}
+	mockTimer := &mockRefreshCondition{shouldRefresh: true}
 	mockMonitor := &mockETagsClient{changed: true}
 	mockLoader := &mockKvRefreshClient{}
 	mockSentinels := &mockKvRefreshClient{err: fmt.Errorf("sentinel error")}
@@ -358,7 +345,7 @@ func TestRefreshKeyValues_SentinelError(t *testing.T) {
 // TestRefreshKeyValues_MonitorError tests when monitor client returns an error
 func TestRefreshKeyValues_MonitorError(t *testing.T) {
 	// Setup mocks with monitor error
-	mockTimer := &mockRefreshCondition{}
+	mockTimer := &mockRefreshCondition{shouldRefresh: true}
 	mockMonitor := &mockETagsClient{err: fmt.Errorf("monitor error")}
 	mockLoader := &mockKvRefreshClient{}
 	mockSentinels := &mockKvRefreshClient{}
@@ -402,4 +389,177 @@ func TestRefresh_AlreadyInProgress(t *testing.T) {
 
 	// Verify no error and that we returned early
 	assert.NoError(t, err)
+}
+
+func TestRefreshKeyVaultSecrets_WithMockResolver_Scenarios(t *testing.T) {
+	// resolutionInstruction defines how a specific Key Vault URI should be resolved by the mock.
+	type resolutionInstruction struct {
+		Value string
+		Err   error
+	}
+
+	tests := []struct {
+		name        string
+		description string // Optional: for more clarity
+
+		// Initial state for AzureAppConfiguration
+		initialTimer        refresh.Condition
+		initialKeyVaultRefs map[string]string // map[appConfigKey]jsonURIString -> e.g., {"secretAppKey": `{"uri":"https://mykv.vault.azure.net/secrets/mysecret"}`}
+		initialKeyValues    map[string]any    // map[appConfigKey]currentValue
+
+		// Configuration for the mockSecretResolver
+		// map[actualURIString]resolutionInstruction -> e.g., {"https://mykv.vault.azure.net/secrets/mysecret": {Value: "resolvedValue", Err: nil}}
+		secretResolutionConfig map[string]resolutionInstruction
+
+		// Expected outcomes
+		expectedChanged        bool
+		expectedErrSubstring   string // Substring of the error expected from refreshKeyVaultSecrets
+		expectedTimerReset     bool
+		expectedFinalKeyValues map[string]any
+	}{
+		{
+			name:                   "Timer is nil",
+			initialTimer:           nil,
+			initialKeyVaultRefs:    map[string]string{"appSecret1": `{"uri":"https://kv.com/s/s1/"}`},
+			initialKeyValues:       map[string]any{"appSecret1": "oldVal1"},
+			expectedChanged:        false,
+			expectedTimerReset:     false,
+			expectedFinalKeyValues: map[string]any{"appSecret1": "oldVal1"},
+		},
+		{
+			name:                   "Timer not expired",
+			initialTimer:           &mockRefreshCondition{shouldRefresh: false},
+			initialKeyVaultRefs:    map[string]string{"appSecret1": `{"uri":"https://kv.com/s/s1/"}`},
+			initialKeyValues:       map[string]any{"appSecret1": "oldVal1"},
+			expectedChanged:        false,
+			expectedTimerReset:     false,
+			expectedFinalKeyValues: map[string]any{"appSecret1": "oldVal1"},
+		},
+		{
+			name:                   "No keyVaultRefs, timer ready",
+			initialTimer:           &mockRefreshCondition{shouldRefresh: true},
+			initialKeyVaultRefs:    map[string]string{},
+			initialKeyValues:       map[string]any{"appKey": "appVal"},
+			expectedChanged:        false,
+			expectedTimerReset:     true,
+			expectedFinalKeyValues: map[string]any{"appKey": "appVal"},
+		},
+		{
+			name:                "Secrets not changed, timer ready",
+			initialTimer:        &mockRefreshCondition{shouldRefresh: true},
+			initialKeyVaultRefs: map[string]string{"appSecret1": `{"uri":"https://myvault.vault.azure.net/secrets/s1"}`},
+			initialKeyValues:    map[string]any{"appSecret1": "currentVal", "appKey": "appVal"},
+			secretResolutionConfig: map[string]resolutionInstruction{
+				"https://myvault.vault.azure.net/secrets/s1": {Value: "currentVal"},
+			},
+			expectedChanged:        false,
+			expectedTimerReset:     true,
+			expectedFinalKeyValues: map[string]any{"appSecret1": "currentVal", "appKey": "appVal"},
+		},
+		{
+			name:                "Secrets changed - existing secret updated, timer ready",
+			initialTimer:        &mockRefreshCondition{shouldRefresh: true},
+			initialKeyVaultRefs: map[string]string{"appSecret1": `{"uri":"https://myvault.vault.azure.net/secrets/s1"}`},
+			initialKeyValues:    map[string]any{"appSecret1": "oldVal1", "appKey": "appVal"},
+			secretResolutionConfig: map[string]resolutionInstruction{
+				"https://myvault.vault.azure.net/secrets/s1": {Value: "newVal1"},
+			},
+			expectedChanged:    true,
+			expectedTimerReset: true,
+			expectedFinalKeyValues: map[string]any{
+				"appSecret1": "newVal1",
+				"appKey":     "appVal",
+			},
+		},
+		{
+			name:                "Secrets changed - mix of updated, unchanged, timer ready",
+			initialTimer:        &mockRefreshCondition{shouldRefresh: true},
+			initialKeyVaultRefs: map[string]string{"s1": `{"uri":"https://myvault.vault.azure.net/secrets/s1"}`, "s3": `{"uri":"https://myvault.vault.azure.net/secrets/s3"}`},
+			initialKeyValues:    map[string]any{"s1": "oldVal1", "s3": "val3Unchanged", "appKey": "appVal"},
+			secretResolutionConfig: map[string]resolutionInstruction{
+				"https://myvault.vault.azure.net/secrets/s1": {Value: "newVal1"},
+				"https://myvault.vault.azure.net/secrets/s3": {Value: "val3Unchanged"},
+			},
+			expectedChanged:    true,
+			expectedTimerReset: true,
+			expectedFinalKeyValues: map[string]any{
+				"s1":     "newVal1",
+				"s3":     "val3Unchanged",
+				"appKey": "appVal",
+			},
+		},
+	}
+
+	ctx := context.Background()
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			// Setup
+			currentKeyValues := make(map[string]any)
+			if tc.initialKeyValues != nil {
+				for k, v := range tc.initialKeyValues {
+					currentKeyValues[k] = v
+				}
+			}
+
+			mockResolver := new(mockSecretResolver)
+			azappcfg := &AzureAppConfiguration{
+				secretRefreshTimer: tc.initialTimer,
+				keyVaultRefs:       tc.initialKeyVaultRefs,
+				keyValues:          currentKeyValues,
+				resolver: &keyVaultReferenceResolver{
+					clients:        sync.Map{},
+					secretResolver: mockResolver,
+				},
+			}
+
+			if tc.initialKeyVaultRefs != nil && tc.secretResolutionConfig != nil {
+				for _, jsonRefString := range tc.initialKeyVaultRefs {
+					var kvRefInternal struct { // Re-declare locally or use the actual keyVaultReference type if accessible
+						URI string `json:"uri"`
+					}
+					err := json.Unmarshal([]byte(jsonRefString), &kvRefInternal)
+					if err != nil {
+						continue
+					}
+					actualURIString := kvRefInternal.URI
+					if actualURIString == "" {
+						continue
+					}
+
+					if instruction, ok := tc.secretResolutionConfig[actualURIString]; ok {
+						parsedURL, parseErr := url.Parse(actualURIString)
+						require.NoError(t, parseErr, "Test setup: Failed to parse URI for mock expectation: %s", actualURIString)
+						mockResolver.On("ResolveSecret", ctx, *parsedURL).Return(instruction.Value, instruction.Err).Once()
+					}
+				}
+			}
+
+			// Execute
+			changed, err := azappcfg.refreshKeyVaultSecrets(context.Background())
+
+			// Assert Error
+			if tc.expectedErrSubstring != "" {
+				require.Error(t, err, "Expected an error but got nil")
+				assert.Contains(t, err.Error(), tc.expectedErrSubstring, "Error message mismatch")
+			} else {
+				require.NoError(t, err, "Expected no error but got: %v", err)
+			}
+
+			// Assert Changed Flag
+			assert.Equal(t, tc.expectedChanged, changed, "Changed flag mismatch")
+
+			// Assert Timer Reset
+			if mockTimer, ok := tc.initialTimer.(*mockRefreshCondition); ok {
+				assert.Equal(t, tc.expectedTimerReset, mockTimer.resetCalled, "Timer reset state mismatch")
+			} else if tc.initialTimer == nil {
+				assert.False(t, tc.expectedTimerReset, "Timer was nil, reset should not be expected")
+			}
+
+			// Assert Final KeyValues
+			assert.Equal(t, tc.expectedFinalKeyValues, azappcfg.keyValues, "Final keyValues mismatch")
+
+			// Verify mock expectations
+			mockResolver.AssertExpectations(t)
+		})
+	}
 }

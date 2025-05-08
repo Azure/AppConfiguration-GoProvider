@@ -55,6 +55,13 @@ func verifyOptions(options *Options) error {
 		}
 	}
 
+	if options.KeyVaultOptions.RefreshOptions.Enabled {
+		if options.KeyVaultOptions.RefreshOptions.Interval != 0 &&
+			options.KeyVaultOptions.RefreshOptions.Interval < minimalRefreshInterval {
+			return fmt.Errorf("refresh interval of Key Vault secrets cannot be less than %s", minimalKeyVaultRefreshInterval)
+		}
+	}
+
 	return nil
 }
 

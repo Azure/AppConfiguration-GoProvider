@@ -17,6 +17,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"maps"
 	"os"
 	"strconv"
 	"strings"
@@ -27,21 +28,25 @@ import (
 	"github.com/Azure/AppConfiguration-GoProvider/azureappconfiguration/internal/tracing"
 	"github.com/Azure/AppConfiguration-GoProvider/azureappconfiguration/internal/tree"
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore"
+	"github.com/Azure/azure-sdk-for-go/sdk/data/azappconfig"
 	decoder "github.com/go-viper/mapstructure/v2"
 	"golang.org/x/sync/errgroup"
 )
 
 // An AzureAppConfiguration is a configuration provider that stores and manages settings sourced from Azure App Configuration.
 type AzureAppConfiguration struct {
-	keyValues       map[string]any
+	keyValues map[string]any
+
 	kvSelectors     []Selector
 	trimPrefixes    []string
 	watchedSettings []WatchedSetting
 
-	sentinelETags    map[WatchedSetting]*azcore.ETag
-	kvRefreshTimer   refresh.Condition
-	onRefreshSuccess []func()
-	tracingOptions   tracing.Options
+	sentinelETags      map[WatchedSetting]*azcore.ETag
+	keyVaultRefs       map[string]string // unversioned Key Vault references
+	kvRefreshTimer     refresh.Condition
+	secretRefreshTimer refresh.Condition
+	onRefreshSuccess   []func()
+	tracingOptions     tracing.Options
 
 	clientManager *configurationClientManager
 	resolver      *keyVaultReferenceResolver
@@ -94,6 +99,12 @@ func Load(ctx context.Context, authentication AuthenticationOptions, options *Op
 		azappcfg.kvRefreshTimer = refresh.NewTimer(options.RefreshOptions.Interval)
 		azappcfg.watchedSettings = normalizedWatchedSettings(options.RefreshOptions.WatchedSettings)
 		azappcfg.sentinelETags = make(map[WatchedSetting]*azcore.ETag)
+	}
+
+	if options.KeyVaultOptions.RefreshOptions.Enabled {
+		azappcfg.secretRefreshTimer = refresh.NewTimer(options.KeyVaultOptions.RefreshOptions.Interval)
+		azappcfg.keyVaultRefs = make(map[string]string)
+		azappcfg.tracingOptions.KeyVaultRefreshConfigured = true
 	}
 
 	if err := azappcfg.load(ctx); err != nil {
@@ -187,8 +198,8 @@ func (azappcfg *AzureAppConfiguration) GetBytes(options *ConstructionOptions) ([
 // Returns:
 // - An error if refresh is not configured, or if the refresh operation fails
 func (azappcfg *AzureAppConfiguration) Refresh(ctx context.Context) error {
-	if azappcfg.kvRefreshTimer == nil {
-		return fmt.Errorf("refresh is not configured")
+	if azappcfg.kvRefreshTimer == nil && azappcfg.secretRefreshTimer == nil {
+		return fmt.Errorf("refresh is not enabled for either key values or Key Vault secrets")
 	}
 
 	// Try to set refreshInProgress to true, returning false if it was already true
@@ -199,19 +210,24 @@ func (azappcfg *AzureAppConfiguration) Refresh(ctx context.Context) error {
 	// Reset the flag when we're done
 	defer azappcfg.refreshInProgress.Store(false)
 
-	// Check if it's time to perform a refresh based on the timer interval
-	if !azappcfg.kvRefreshTimer.ShouldRefresh() {
-		return nil
-	}
-
 	// Attempt to refresh and check if any values were actually updated
-	refreshed, err := azappcfg.refreshKeyValues(ctx, azappcfg.newKeyValueRefreshClient())
+	keyValueRefreshed, err := azappcfg.refreshKeyValues(ctx, azappcfg.newKeyValueRefreshClient())
 	if err != nil {
 		return fmt.Errorf("failed to refresh configuration: %w", err)
 	}
 
+	// Attempt to reload Key Vault secrets and check if any values were actually updated
+	// No need to reload Key Vault secrets if key values are refreshed
+	secretRefreshed := false
+	if !keyValueRefreshed {
+		secretRefreshed, err = azappcfg.refreshKeyVaultSecrets(ctx)
+		if err != nil {
+			return fmt.Errorf("failed to reload Key Vault secrets: %w", err)
+		}
+	}
+
 	// Only execute callbacks if actual changes were applied
-	if refreshed {
+	if keyValueRefreshed || secretRefreshed {
 		for _, callback := range azappcfg.onRefreshSuccess {
 			if callback != nil {
 				callback()
@@ -280,9 +296,8 @@ func (azappcfg *AzureAppConfiguration) loadKeyValues(ctx context.Context, settin
 		return err
 	}
 
-	var useAIConfiguration, useAIChatCompletionConfiguration bool
-	kvSettings := make(map[string]any, len(settingsResponse.settings))
-	keyVaultRefs := make(map[string]string)
+	// de-duplicate settings
+	rawSettings := make(map[string]azappconfig.Setting, len(settingsResponse.settings))
 	for _, setting := range settingsResponse.settings {
 		if setting.Key == nil {
 			continue
@@ -292,7 +307,13 @@ func (azappcfg *AzureAppConfiguration) loadKeyValues(ctx context.Context, settin
 			log.Printf("Key of the setting '%s' is trimmed to the empty string, just ignore it", *setting.Key)
 			continue
 		}
+		rawSettings[trimmedKey] = setting
+	}
 
+	var useAIConfiguration, useAIChatCompletionConfiguration bool
+	kvSettings := make(map[string]any, len(settingsResponse.settings))
+	keyVaultRefs := make(map[string]string)
+	for trimmedKey, setting := range rawSettings {
 		if setting.ContentType == nil || setting.Value == nil {
 			kvSettings[trimmedKey] = setting.Value
 			continue
@@ -326,43 +347,63 @@ func (azappcfg *AzureAppConfiguration) loadKeyValues(ctx context.Context, settin
 	azappcfg.tracingOptions.UseAIConfiguration = useAIConfiguration
 	azappcfg.tracingOptions.UseAIChatCompletionConfiguration = useAIChatCompletionConfiguration
 
-	var eg errgroup.Group
+	secrets, err := azappcfg.loadKeyVaultSecrets(ctx, keyVaultRefs)
+	if err != nil {
+		return fmt.Errorf("failed to load Key Vault secrets: %w", err)
+	}
+
+	maps.Copy(kvSettings, secrets)
+	azappcfg.keyValues = kvSettings
+	azappcfg.keyVaultRefs = getUnversionedKeyVaultRefs(keyVaultRefs)
+
+	return nil
+}
+
+func (azappcfg *AzureAppConfiguration) loadKeyVaultSecrets(ctx context.Context, keyVaultRefs map[string]string) (map[string]any, error) {
+	secrets := make(map[string]any)
+	if len(keyVaultRefs) == 0 {
+		return secrets, nil
+	}
+
+	if azappcfg.resolver.credential == nil && azappcfg.resolver.secretResolver == nil {
+		return secrets, fmt.Errorf("no Key Vault credential or SecretResolver was configured in KeyVaultOptions")
+	}
+
 	resolvedSecrets := sync.Map{}
-	if len(keyVaultRefs) > 0 {
-		if azappcfg.resolver.credential == nil && azappcfg.resolver.secretResolver == nil {
-			return fmt.Errorf("no Key Vault credential or SecretResolver configured")
-		}
+	var eg errgroup.Group
+	for key, kvRef := range keyVaultRefs {
+		key, kvRef := key, kvRef
+		eg.Go(func() error {
+			resolvedSecret, err := azappcfg.resolver.resolveSecret(ctx, kvRef)
+			if err != nil {
+				return fmt.Errorf("fail to resolve the Key Vault reference '%s': %s", key, err.Error())
+			}
+			resolvedSecrets.Store(key, resolvedSecret)
+			return nil
+		})
+	}
 
-		for key, kvRef := range keyVaultRefs {
-			key, kvRef := key, kvRef
-			eg.Go(func() error {
-				resolvedSecret, err := azappcfg.resolver.resolveSecret(ctx, kvRef)
-				if err != nil {
-					return fmt.Errorf("fail to resolve the Key Vault reference '%s': %s", key, err.Error())
-				}
-				resolvedSecrets.Store(key, resolvedSecret)
-				return nil
-			})
-		}
-
-		if err := eg.Wait(); err != nil {
-			return err
-		}
+	if err := eg.Wait(); err != nil {
+		return secrets, fmt.Errorf("failed to resolve Key Vault references: %w", err)
 	}
 
 	resolvedSecrets.Range(func(key, value interface{}) bool {
-		kvSettings[key.(string)] = value.(string)
+		secrets[key.(string)] = value.(string)
 		return true
 	})
 
-	azappcfg.keyValues = kvSettings
-
-	return nil
+	return secrets, nil
 }
 
 // refreshKeyValues checks if any watched settings have changed and reloads configuration if needed
 // Returns true if configuration was actually refreshed, false otherwise
 func (azappcfg *AzureAppConfiguration) refreshKeyValues(ctx context.Context, refreshClient refreshClient) (bool, error) {
+	if azappcfg.kvRefreshTimer == nil ||
+		!azappcfg.kvRefreshTimer.ShouldRefresh() {
+		// Timer not expired, no need to refresh
+		return false, nil
+	}
+
 	// Check if any ETags have changed
 	eTagChanged, err := refreshClient.monitor.checkIfETagChanged(ctx)
 	if err != nil {
@@ -400,6 +441,40 @@ func (azappcfg *AzureAppConfiguration) refreshKeyValues(ctx context.Context, ref
 	// Reset the timer only after successful refresh
 	azappcfg.kvRefreshTimer.Reset()
 	return true, nil
+}
+
+func (azappcfg *AzureAppConfiguration) refreshKeyVaultSecrets(ctx context.Context) (bool, error) {
+	if azappcfg.secretRefreshTimer == nil ||
+		!azappcfg.secretRefreshTimer.ShouldRefresh() {
+		// Timer not expired, no need to refresh
+		return false, nil
+	}
+
+	if len(azappcfg.keyVaultRefs) == 0 {
+		azappcfg.secretRefreshTimer.Reset()
+		return false, nil
+	}
+
+	unversionedSecrets, err := azappcfg.loadKeyVaultSecrets(ctx, azappcfg.keyVaultRefs)
+	if err != nil {
+		return false, fmt.Errorf("failed to reload Key Vault secrets: %w", err)
+	}
+
+	// Check if any secrets have changed
+	changed := false
+	keyValues := make(map[string]any)
+	maps.Copy(keyValues, azappcfg.keyValues)
+	for key, newSecret := range unversionedSecrets {
+		if oldSecret, exists := keyValues[key]; !exists || oldSecret != newSecret {
+			changed = true
+			keyValues[key] = newSecret
+		}
+	}
+
+	// Reset the timer only after successful refresh
+	azappcfg.keyValues = keyValues
+	azappcfg.secretRefreshTimer.Reset()
+	return changed, nil
 }
 
 func (azappcfg *AzureAppConfiguration) trimPrefix(key string) string {

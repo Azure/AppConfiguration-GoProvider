@@ -104,6 +104,19 @@ type KeyVaultOptions struct {
 	// SecretResolver specifies a custom implementation for resolving Key Vault references.
 	// When provided, this takes precedence over using the default resolver with Credential.
 	SecretResolver SecretResolver
+
+	// RefreshOptions specifies the behavior of Key Vault secrets refresh.
+	// Sets the refresh interval for periodically reloading secrets from Key Vault, must be greater than 1 minute.
+	RefreshOptions RefreshOptions
+}
+
+// RefreshOptions contains optional parameters to configure the behavior of refresh
+type RefreshOptions struct {
+	// Interval specifies the minimum time interval between consecutive refresh operations
+	Interval time.Duration
+
+	// Enabled specifies whether the provider should automatically refresh when data is changed.
+	Enabled bool
 }
 
 // ConstructionOptions contains parameters for parsing keys with hierarchical structure.
