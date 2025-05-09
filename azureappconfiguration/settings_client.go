@@ -18,11 +18,13 @@ import (
 type settingsResponse struct {
 	settings     []azappconfig.Setting
 	watchedETags map[WatchedSetting]*azcore.ETag
+	pageETags    map[Selector][]*azcore.ETag
 }
 
 type selectorSettingsClient struct {
 	selectors      []Selector
 	client         *azappconfig.Client
+	pageETags      map[Selector][]*azcore.ETag
 	tracingOptions tracing.Options
 }
 
@@ -53,6 +55,7 @@ func (s *selectorSettingsClient) getSettings(ctx context.Context) (*settingsResp
 	}
 
 	settings := make([]azappconfig.Setting, 0)
+	pageETags := make(map[Selector][]*azcore.ETag)
 	for _, filter := range s.selectors {
 		selector := azappconfig.SettingSelector{
 			KeyFilter:   to.Ptr(filter.KeyFilter),
@@ -61,18 +64,23 @@ func (s *selectorSettingsClient) getSettings(ctx context.Context) (*settingsResp
 		}
 
 		pager := s.client.NewListSettingsPager(selector, nil)
+		latestETags := make([]*azcore.ETag, 0)
 		for pager.More() {
 			page, err := pager.NextPage(ctx)
 			if err != nil {
 				return nil, err
 			} else if page.Settings != nil {
 				settings = append(settings, page.Settings...)
+				latestETags = append(latestETags, page.ETag)
 			}
 		}
+
+		pageETags[filter] = latestETags
 	}
 
 	return &settingsResponse{
-		settings: settings,
+		settings:  settings,
+		pageETags: pageETags,
 	}, nil
 }
 
@@ -126,6 +134,48 @@ func (c *watchedSettingClient) checkIfETagChanged(ctx context.Context) (bool, er
 		}
 
 		return true, nil
+	}
+
+	return false, nil
+}
+
+func (c *selectorSettingsClient) checkIfETagChanged(ctx context.Context) (bool, error) {
+	if c.tracingOptions.Enabled {
+		ctx = policy.WithHTTPHeader(ctx, tracing.CreateCorrelationContextHeader(ctx, c.tracingOptions))
+	}
+
+	for filter, pageETags := range c.pageETags {
+		selector := azappconfig.SettingSelector{
+			KeyFilter:   to.Ptr(filter.KeyFilter),
+			LabelFilter: to.Ptr(filter.LabelFilter),
+			Fields:      azappconfig.AllSettingFields(),
+		}
+
+		conditions := make([]azcore.MatchConditions, 0)
+		for _, eTag := range pageETags {
+			conditions = append(conditions, azcore.MatchConditions{IfNoneMatch: eTag})
+		}
+
+		pager := c.client.NewListSettingsPager(selector, &azappconfig.ListSettingsOptions{
+			MatchConditions: conditions,
+		})
+
+		pageCount := 0
+		for pager.More() {
+			pageCount++
+			page, err := pager.NextPage(context.Background())
+			if err != nil {
+				return false, err
+			}
+			// ETag changed
+			if page.ETag != nil {
+				return true, nil
+			}
+		}
+
+		if pageCount != len(pageETags) {
+			return true, nil
+		}
 	}
 
 	return false, nil

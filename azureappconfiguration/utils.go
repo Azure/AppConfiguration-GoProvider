@@ -35,10 +35,6 @@ func verifyOptions(options *Options) error {
 			return fmt.Errorf("key value refresh interval cannot be less than %s", minimalRefreshInterval)
 		}
 
-		if len(options.RefreshOptions.WatchedSettings) == 0 {
-			return fmt.Errorf("watched settings cannot be empty")
-		}
-
 		for _, watchedSetting := range options.RefreshOptions.WatchedSettings {
 			if watchedSetting.Key == "" {
 				return fmt.Errorf("watched setting key cannot be empty")
