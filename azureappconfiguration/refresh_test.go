@@ -60,21 +60,6 @@ func TestRefresh_NotConfigured(t *testing.T) {
 	assert.Contains(t, err.Error(), "refresh is not enabled for either key values or Key Vault secrets")
 }
 
-func TestRefreshEnabled_EmptyWatchedSettings(t *testing.T) {
-	// Test verifying validation when refresh is enabled but no watched settings
-	options := &Options{
-		RefreshOptions: KeyValueRefreshOptions{
-			Enabled:         true, // Enabled but without watched settings
-			WatchedSettings: []WatchedSetting{},
-		},
-	}
-
-	// Verify error
-	err := verifyOptions(options)
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "watched settings cannot be empty")
-}
-
 func TestRefreshEnabled_IntervalTooShort(t *testing.T) {
 	// Test verifying validation when refresh interval is too short
 	options := &Options{

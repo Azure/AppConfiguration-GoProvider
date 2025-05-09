@@ -42,6 +42,8 @@ type AzureAppConfiguration struct {
 	watchedSettings []WatchedSetting
 
 	sentinelETags      map[WatchedSetting]*azcore.ETag
+	refreshAll         bool
+	pageETags          map[Selector][]*azcore.ETag
 	keyVaultRefs       map[string]string // unversioned Key Vault references
 	kvRefreshTimer     refresh.Condition
 	secretRefreshTimer refresh.Condition
@@ -99,6 +101,10 @@ func Load(ctx context.Context, authentication AuthenticationOptions, options *Op
 		azappcfg.kvRefreshTimer = refresh.NewTimer(options.RefreshOptions.Interval)
 		azappcfg.watchedSettings = normalizedWatchedSettings(options.RefreshOptions.WatchedSettings)
 		azappcfg.sentinelETags = make(map[WatchedSetting]*azcore.ETag)
+		azappcfg.pageETags = make(map[Selector][]*azcore.ETag)
+		if len(options.RefreshOptions.WatchedSettings) == 0 {
+			azappcfg.refreshAll = true
+		}
 	}
 
 	if options.KeyVaultOptions.RefreshOptions.Enabled {
@@ -355,6 +361,7 @@ func (azappcfg *AzureAppConfiguration) loadKeyValues(ctx context.Context, settin
 	maps.Copy(kvSettings, secrets)
 	azappcfg.keyValues = kvSettings
 	azappcfg.keyVaultRefs = getUnversionedKeyVaultRefs(keyVaultRefs)
+	azappcfg.pageETags = settingsResponse.pageETags
 
 	return nil
 }
@@ -407,7 +414,7 @@ func (azappcfg *AzureAppConfiguration) refreshKeyValues(ctx context.Context, ref
 	// Check if any ETags have changed
 	eTagChanged, err := refreshClient.monitor.checkIfETagChanged(ctx)
 	if err != nil {
-		return false, fmt.Errorf("failed to check if watched settings have changed: %w", err)
+		return false, fmt.Errorf("failed to check if key value settings have changed: %w", err)
 	}
 
 	if !eTagChanged {
@@ -572,17 +579,28 @@ func normalizedWatchedSettings(s []WatchedSetting) []WatchedSetting {
 }
 
 func (azappcfg *AzureAppConfiguration) newKeyValueRefreshClient() refreshClient {
+	var monitor eTagsClient
+	if azappcfg.refreshAll {
+		monitor = &selectorSettingsClient{
+			client:         azappcfg.clientManager.staticClient.client,
+			tracingOptions: azappcfg.tracingOptions,
+			pageETags:      azappcfg.pageETags,
+		}
+	} else {
+		monitor = &watchedSettingClient{
+			client:         azappcfg.clientManager.staticClient.client,
+			tracingOptions: azappcfg.tracingOptions,
+			eTags:          azappcfg.sentinelETags,
+		}
+	}
+
 	return refreshClient{
 		loader: &selectorSettingsClient{
 			selectors:      azappcfg.kvSelectors,
 			client:         azappcfg.clientManager.staticClient.client,
 			tracingOptions: azappcfg.tracingOptions,
 		},
-		monitor: &watchedSettingClient{
-			eTags:          azappcfg.sentinelETags,
-			client:         azappcfg.clientManager.staticClient.client,
-			tracingOptions: azappcfg.tracingOptions,
-		},
+		monitor: monitor,
 		sentinels: &watchedSettingClient{
 			watchedSettings: azappcfg.watchedSettings,
 			client:          azappcfg.clientManager.staticClient.client,
