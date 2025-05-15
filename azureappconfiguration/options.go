@@ -23,6 +23,7 @@ type Options struct {
 	// Each selector combines a key filter and label filter
 	// If selectors are not provided, all key-values with no label are loaded by default.
 	Selectors []Selector
+
 	// RefreshOptions contains optional parameters to configure the behavior of key-value settings refresh
 	RefreshOptions KeyValueRefreshOptions
 
@@ -36,7 +37,7 @@ type Options struct {
 // AuthenticationOptions contains parameters for authenticating with the Azure App Configuration service.
 // Either a connection string or an endpoint with credential must be provided.
 type AuthenticationOptions struct {
-	// Credential is a token credential for Azure EntraID Authenticaiton.
+	// Credential is a token credential for Azure EntraID Authentication.
 	// Required when Endpoint is provided.
 	Credential azcore.TokenCredential
 

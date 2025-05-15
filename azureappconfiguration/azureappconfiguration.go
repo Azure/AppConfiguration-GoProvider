@@ -35,12 +35,15 @@ import (
 
 // An AzureAppConfiguration is a configuration provider that stores and manages settings sourced from Azure App Configuration.
 type AzureAppConfiguration struct {
+	// Settings loaded from Azure App Configuration
 	keyValues map[string]any
 
+	// Settings configured from Options
 	kvSelectors     []Selector
 	trimPrefixes    []string
 	watchedSettings []WatchedSetting
 
+	// Settings used for refresh scenarios
 	sentinelETags      map[WatchedSetting]*azcore.ETag
 	watchAll           bool
 	pageETags          map[Selector][]*azcore.ETag
@@ -50,6 +53,7 @@ type AzureAppConfiguration struct {
 	onRefreshSuccess   []func()
 	tracingOptions     tracing.Options
 
+	// Clients talking to Azure App Configuration/Azure Key Vault service
 	clientManager *configurationClientManager
 	resolver      *keyVaultReferenceResolver
 
