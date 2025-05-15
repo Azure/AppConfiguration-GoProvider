@@ -16,6 +16,7 @@ import (
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore"
 	"github.com/Azure/azure-sdk-for-go/sdk/data/azappconfig"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 )
 
@@ -547,4 +548,99 @@ func TestRefreshKeyVaultSecrets_WithMockResolver_Scenarios(t *testing.T) {
 			mockResolver.AssertExpectations(t)
 		})
 	}
+}
+
+func TestRefresh_SettingsUpdated_WatchAll(t *testing.T) {
+	// Create initial cached values
+	initialKeyValues := map[string]any{
+		"setting1": "initial-value1",
+		"setting2": "initial-value2",
+		"setting3": "value-unchanged",
+	}
+
+	// Set up mock etags client that will detect changes
+	mockETags := &mockETagsClient{
+		changed: true, // Simulate that etags have changed
+	}
+
+	// Set up mock settings client that will return updated values
+	mockSettings := new(mockSettingsClient)
+	updatedValue1 := "updated-value1"
+	updatedValue2 := "new-value"
+	mockResponse := &settingsResponse{
+		settings: []azappconfig.Setting{
+			{Key: toPtr("setting1"), Value: &updatedValue1, ContentType: toPtr("")},
+			{Key: toPtr("setting3"), Value: toPtr("value-unchanged"), ContentType: toPtr("")},
+			{Key: toPtr("setting4"), Value: &updatedValue2, ContentType: toPtr("")}, // New setting
+			// Note: setting2 is missing - will be removed
+		},
+	}
+	mockSettings.On("getSettings", mock.Anything).Return(mockResponse, nil)
+
+	// Create refresh client wrapping the mocks
+	mockRefreshClient := refreshClient{
+		monitor: mockETags,
+		loader:  mockSettings,
+	}
+
+	// Set up AzureAppConfiguration with initial values and refresh capabilities
+	azappcfg := &AzureAppConfiguration{
+		keyValues:      make(map[string]any),
+		kvRefreshTimer: &mockRefreshCondition{shouldRefresh: true},
+		watchAll:       true, // Enable watching all settings
+	}
+
+	// Copy initial values
+	for k, v := range initialKeyValues {
+		azappcfg.keyValues[k] = v
+	}
+
+	// Call Refresh
+	changed, err := azappcfg.refreshKeyValues(context.Background(), mockRefreshClient)
+
+	// Verify results
+	require.NoError(t, err)
+	assert.True(t, changed, "Expected cache to be updated")
+
+	// Verify cache was updated correctly
+	assert.Equal(t, "updated-value1", *azappcfg.keyValues["setting1"].(*string), "Setting1 should be updated")
+	assert.Equal(t, "value-unchanged", *azappcfg.keyValues["setting3"].(*string), "Setting3 should remain unchanged")
+	assert.Equal(t, "new-value", *azappcfg.keyValues["setting4"].(*string), "Setting4 should be added")
+
+	// Verify setting2 was removed
+	_, exists := azappcfg.keyValues["setting2"]
+	assert.False(t, exists, "Setting2 should be removed")
+
+	// Verify mocks were called as expected
+	mockSettings.AssertExpectations(t)
+	assert.Equal(t, 1, mockETags.checkCallCount, "ETag check should be called once")
+}
+
+// TestRefreshKeyValues_NoChanges tests when no ETags change is detected
+func TestRefreshKeyValues_NoChanges_WatchAll(t *testing.T) {
+	// Setup mocks
+	mockTimer := &mockRefreshCondition{shouldRefresh: true}
+	mockMonitor := &mockETagsClient{changed: false}
+	mockLoader := &mockKvRefreshClient{}
+
+	mockClient := refreshClient{
+		loader:  mockLoader,
+		monitor: mockMonitor,
+	}
+
+	// Setup provider
+	azappcfg := &AzureAppConfiguration{
+		kvRefreshTimer: mockTimer,
+		watchAll:       true,
+	}
+
+	// Call refreshKeyValues
+	refreshed, err := azappcfg.refreshKeyValues(context.Background(), mockClient)
+
+	// Verify results
+	assert.NoError(t, err)
+	assert.False(t, refreshed, "Should return false when no changes detected")
+	assert.Equal(t, 1, mockMonitor.checkCallCount, "Monitor should be called exactly once")
+	assert.Equal(t, 0, mockLoader.getCallCount, "Loader should not be called when no changes")
+	assert.True(t, mockTimer.resetCalled, "Timer should be reset even when no changes")
 }
