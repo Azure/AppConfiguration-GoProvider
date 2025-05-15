@@ -42,7 +42,7 @@ type AzureAppConfiguration struct {
 	watchedSettings []WatchedSetting
 
 	sentinelETags      map[WatchedSetting]*azcore.ETag
-	refreshAll         bool
+	watchAll           bool
 	pageETags          map[Selector][]*azcore.ETag
 	keyVaultRefs       map[string]string // unversioned Key Vault references
 	kvRefreshTimer     refresh.Condition
@@ -103,7 +103,7 @@ func Load(ctx context.Context, authentication AuthenticationOptions, options *Op
 		azappcfg.sentinelETags = make(map[WatchedSetting]*azcore.ETag)
 		azappcfg.pageETags = make(map[Selector][]*azcore.ETag)
 		if len(options.RefreshOptions.WatchedSettings) == 0 {
-			azappcfg.refreshAll = true
+			azappcfg.watchAll = true
 		}
 	}
 
@@ -580,8 +580,8 @@ func normalizedWatchedSettings(s []WatchedSetting) []WatchedSetting {
 
 func (azappcfg *AzureAppConfiguration) newKeyValueRefreshClient() refreshClient {
 	var monitor eTagsClient
-	if azappcfg.refreshAll {
-		monitor = &selectorSettingsClient{
+	if azappcfg.watchAll {
+		monitor = &pageETagsClient{
 			client:         azappcfg.clientManager.staticClient.client,
 			tracingOptions: azappcfg.tracingOptions,
 			pageETags:      azappcfg.pageETags,

@@ -24,7 +24,6 @@ type settingsResponse struct {
 type selectorSettingsClient struct {
 	selectors      []Selector
 	client         *azappconfig.Client
-	pageETags      map[Selector][]*azcore.ETag
 	tracingOptions tracing.Options
 }
 
@@ -33,6 +32,12 @@ type watchedSettingClient struct {
 	eTags           map[WatchedSetting]*azcore.ETag
 	client          *azappconfig.Client
 	tracingOptions  tracing.Options
+}
+
+type pageETagsClient struct {
+	pageETags      map[Selector][]*azcore.ETag
+	client         *azappconfig.Client
+	tracingOptions tracing.Options
 }
 
 type settingsClient interface {
@@ -64,18 +69,18 @@ func (s *selectorSettingsClient) getSettings(ctx context.Context) (*settingsResp
 		}
 
 		pager := s.client.NewListSettingsPager(selector, nil)
-		latestETags := make([]*azcore.ETag, 0)
+		eTags := make([]*azcore.ETag, 0)
 		for pager.More() {
 			page, err := pager.NextPage(ctx)
 			if err != nil {
 				return nil, err
 			} else if page.Settings != nil {
 				settings = append(settings, page.Settings...)
-				latestETags = append(latestETags, page.ETag)
+				eTags = append(eTags, page.ETag)
 			}
 		}
 
-		pageETags[filter] = latestETags
+		pageETags[filter] = eTags
 	}
 
 	return &settingsResponse{
@@ -139,15 +144,15 @@ func (c *watchedSettingClient) checkIfETagChanged(ctx context.Context) (bool, er
 	return false, nil
 }
 
-func (c *selectorSettingsClient) checkIfETagChanged(ctx context.Context) (bool, error) {
+func (c *pageETagsClient) checkIfETagChanged(ctx context.Context) (bool, error) {
 	if c.tracingOptions.Enabled {
 		ctx = policy.WithHTTPHeader(ctx, tracing.CreateCorrelationContextHeader(ctx, c.tracingOptions))
 	}
 
-	for filter, pageETags := range c.pageETags {
-		selector := azappconfig.SettingSelector{
-			KeyFilter:   to.Ptr(filter.KeyFilter),
-			LabelFilter: to.Ptr(filter.LabelFilter),
+	for selector, pageETags := range c.pageETags {
+		s := azappconfig.SettingSelector{
+			KeyFilter:   to.Ptr(selector.KeyFilter),
+			LabelFilter: to.Ptr(selector.LabelFilter),
 			Fields:      azappconfig.AllSettingFields(),
 		}
 
@@ -156,7 +161,7 @@ func (c *selectorSettingsClient) checkIfETagChanged(ctx context.Context) (bool, 
 			conditions = append(conditions, azcore.MatchConditions{IfNoneMatch: eTag})
 		}
 
-		pager := c.client.NewListSettingsPager(selector, &azappconfig.ListSettingsOptions{
+		pager := c.client.NewListSettingsPager(s, &azappconfig.ListSettingsOptions{
 			MatchConditions: conditions,
 		})
 
