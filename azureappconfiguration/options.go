@@ -85,12 +85,12 @@ type SecretResolver interface {
 	// ResolveSecret resolves a Key Vault reference URL to the actual secret value.
 	//
 	// Parameters:
-	// - ctx: The context for the operation
-	// - keyVaultReference: A URL in the format "https://{keyVaultName}.vault.azure.net/secrets/{secretName}/{secretVersion}"
+	//   - ctx: The context for the operation
+	//   - keyVaultReference: A URL in the format "https://{keyVaultName}.vault.azure.net/secrets/{secretName}/{secretVersion}"
 	//
 	// Returns:
-	// - The resolved secret value as a string
-	// - An error if the secret could not be resolved
+	//   - The resolved secret value as a string
+	//   - An error if the secret could not be resolved
 	ResolveSecret(ctx context.Context, keyVaultReference url.URL) (string, error)
 }
 

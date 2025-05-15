@@ -58,13 +58,13 @@ type AzureAppConfiguration struct {
 // Azure App Configuration service.
 //
 // Parameters:
-// - ctx: The context for the operation.
-// - authentication: Authentication options for connecting to the Azure App Configuration service
-// - options: Configuration options to customize behavior, such as key filters and prefix trimming
+//   - ctx: The context for the operation.
+//   - authentication: Authentication options for connecting to the Azure App Configuration service
+//   - options: Configuration options to customize behavior, such as key filters and prefix trimming
 //
 // Returns:
-// - A configured AzureAppConfiguration instance that provides access to the loaded configuration data
-// - An error if the operation fails, such as authentication errors or connectivity issues
+//   - A configured AzureAppConfiguration instance that provides access to the loaded configuration data
+//   - An error if the operation fails, such as authentication errors or connectivity issues
 func Load(ctx context.Context, authentication AuthenticationOptions, options *Options) (*AzureAppConfiguration, error) {
 	if err := verifyAuthenticationOptions(authentication); err != nil {
 		return nil, err
@@ -123,11 +123,11 @@ func Load(ctx context.Context, authentication AuthenticationOptions, options *Op
 // For custom field mapping, use json struct tags.
 //
 // Parameters:
-// - v: A pointer to the struct to populate with configuration values
-// - options: Optional parameters (e,g, separator) for controlling the unmarshalling behavior
+//   - v: A pointer to the struct to populate with configuration values
+//   - options: Optional parameters (e,g, separator) for controlling the unmarshalling behavior
 //
 // Returns:
-// - An error if unmarshalling fails due to type conversion issues or invalid configuration
+//   - An error if unmarshalling fails due to type conversion issues or invalid configuration
 func (azappcfg *AzureAppConfiguration) Unmarshal(v any, options *ConstructionOptions) error {
 	if options == nil || options.Separator == "" {
 		options = &ConstructionOptions{
@@ -162,11 +162,11 @@ func (azappcfg *AzureAppConfiguration) Unmarshal(v any, options *ConstructionOpt
 // This method is particularly useful for integrating with "encoding/json" package or third-party configuration packages like Viper or Koanf.
 //
 // Parameters:
-// - options: Optional parameters for controlling JSON construction, particularly the key separator
+//   - options: Optional parameters for controlling JSON construction, particularly the key separator
 //
 // Returns:
-// - A byte array containing the JSON representation of the configuration
-// - An error if JSON marshalling fails or if an invalid separator is specified
+//   - A byte array containing the JSON representation of the configuration
+//   - An error if JSON marshalling fails or if an invalid separator is specified
 func (azappcfg *AzureAppConfiguration) GetBytes(options *ConstructionOptions) ([]byte, error) {
 	if options == nil || options.Separator == "" {
 		options = &ConstructionOptions{
@@ -186,17 +186,17 @@ func (azappcfg *AzureAppConfiguration) GetBytes(options *ConstructionOptions) ([
 // It checks if any watched settings have changed, and if so, reloads all configuration data.
 //
 // The refresh only occurs if:
-// - Refresh has been configured with RefreshOptions when the client was created
-// - The configured refresh interval has elapsed since the last refresh
-// - No other refresh operation is currently in progress
+//   - Refresh has been configured with RefreshOptions when the client was created
+//   - The configured refresh interval has elapsed since the last refresh
+//   - No other refresh operation is currently in progress
 //
 // If the configuration has changed, any callback functions registered with OnRefreshSuccess will be executed.
 //
 // Parameters:
-// - ctx: The context for the operation.
+//   - ctx: The context for the operation.
 //
 // Returns:
-// - An error if refresh is not configured, or if the refresh operation fails
+//   - An error if refresh is not configured, or if the refresh operation fails
 func (azappcfg *AzureAppConfiguration) Refresh(ctx context.Context) error {
 	if azappcfg.kvRefreshTimer == nil && azappcfg.secretRefreshTimer == nil {
 		return fmt.Errorf("refresh is not enabled for either key values or Key Vault secrets")
@@ -246,7 +246,7 @@ func (azappcfg *AzureAppConfiguration) Refresh(ctx context.Context) error {
 // in the thread that initiated the refresh.
 //
 // Parameters:
-// - callback: A function with no parameters that will be called after a successful refresh
+//   - callback: A function with no parameters that will be called after a successful refresh
 func (azappcfg *AzureAppConfiguration) OnRefreshSuccess(callback func()) {
 	azappcfg.onRefreshSuccess = append(azappcfg.onRefreshSuccess, callback)
 }
