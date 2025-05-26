@@ -23,7 +23,6 @@ type App struct {
 // loadConfiguration handles loading the configuration from Azure App Configuration
 func loadConfiguration() (Config, error) {
 	// Get connection string from environment variable
-	// This is a security best practice to avoid hardcoding secrets in code
 	connectionString := os.Getenv("AZURE_APPCONFIG_CONNECTION_STRING")
 
 	// Configuration setup
