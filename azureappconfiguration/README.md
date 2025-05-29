@@ -14,8 +14,8 @@ go get github.com/Azure/AppConfiguration-GoProvider/azureappconfiguration
 
 ## Examples
 
-- [Console Application](./example/console-example/): Load settings from Azure App Configuration and use in a console application.
-- [Web Application](./example/gin-example/): Load settings from Azure App Configuration and use in a Gin web application.
+- [Console Application](../example/console-example/): Load settings from Azure App Configuration and use in a console application.
+- [Web Application](../example/gin-example/): Load settings from Azure App Configuration and use in a Gin web application.
 
 ## Data Collection
 
