@@ -239,7 +239,9 @@ func (azappcfg *AzureAppConfiguration) Refresh(ctx context.Context) error {
 	// Only execute callbacks if actual changes were applied
 	if keyValueRefreshed || secretRefreshed {
 		for _, callback := range azappcfg.onRefreshSuccess {
-			callback()
+			if callback != nil {
+				callback()
+			}
 		}
 	}
 
