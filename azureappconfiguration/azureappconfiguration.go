@@ -239,9 +239,7 @@ func (azappcfg *AzureAppConfiguration) Refresh(ctx context.Context) error {
 	// Only execute callbacks if actual changes were applied
 	if keyValueRefreshed || secretRefreshed {
 		for _, callback := range azappcfg.onRefreshSuccess {
-			if callback != nil {
-				callback()
-			}
+			callback()
 		}
 	}
 
@@ -259,7 +257,6 @@ func (azappcfg *AzureAppConfiguration) Refresh(ctx context.Context) error {
 //   - callback: A function with no parameters that will be called after a successful refresh
 func (azappcfg *AzureAppConfiguration) OnRefreshSuccess(callback func()) {
 	if callback == nil {
-		log.Println("callback cannot be nil")
 		return
 	}
 
