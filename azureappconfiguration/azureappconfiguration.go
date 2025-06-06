@@ -258,6 +258,10 @@ func (azappcfg *AzureAppConfiguration) Refresh(ctx context.Context) error {
 // Parameters:
 //   - callback: A function with no parameters that will be called after a successful refresh
 func (azappcfg *AzureAppConfiguration) OnRefreshSuccess(callback func()) {
+	if callback == nil {
+		return
+	}
+
 	azappcfg.onRefreshSuccess = append(azappcfg.onRefreshSuccess, callback)
 }
 
