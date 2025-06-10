@@ -612,7 +612,12 @@ func (azappcfg *AzureAppConfiguration) constructHierarchicalMap(separator string
 		tree.Insert(strings.Split(k, separator), v)
 	}
 
-	return tree.Build()
+	constructedMap := tree.Build()
+	if azappcfg.ffEnabled {
+		maps.Copy(constructedMap, azappcfg.featureFlags)
+	}
+
+	return constructedMap
 }
 
 func configureTracingOptions(options *Options) tracing.Options {
