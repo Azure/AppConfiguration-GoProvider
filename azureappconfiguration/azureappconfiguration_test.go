@@ -11,6 +11,9 @@ import (
 	"testing"
 	"time"
 
+	"encoding/json"
+
+	"github.com/Azure/AppConfiguration-GoProvider/azureappconfiguration/internal/fm"
 	"github.com/Azure/AppConfiguration-GoProvider/azureappconfiguration/internal/tracing"
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore"
 	"github.com/Azure/azure-sdk-for-go/sdk/data/azappconfig"
@@ -938,4 +941,515 @@ func TestCorrelationContextHeader(t *testing.T) {
 	assert.True(t, azappcfg.tracingOptions.UseAIChatCompletionConfiguration)
 	assert.Contains(t, correlationCtx, tracing.FeaturesKey+"="+
 		tracing.AIConfigurationTag+tracing.DelimiterPlus+tracing.AIChatCompletionConfigurationTag)
+}
+
+func TestUnmarshal_FeatureManagement(t *testing.T) {
+	// Setup a feature flag configuration
+	azappcfg := &AzureAppConfiguration{
+		ffEnabled: true,
+		featureFlags: map[string]any{
+			"feature_management": map[string]any{
+				"feature_flags": []any{
+					map[string]any{
+						"id":          "BasicFlag",
+						"description": "A simple feature flag",
+						"enabled":     true,
+					},
+					map[string]any{
+						"id":          "FlagWithConditions",
+						"description": "A flag with conditions",
+						"enabled":     false,
+						"conditions": map[string]any{
+							"client_filters": []any{
+								map[string]any{
+									"name": "Microsoft.TimeWindow",
+									"parameters": map[string]any{
+										"Start": "2023-01-01T00:00:00Z",
+										"End":   "2023-12-31T23:59:59Z",
+									},
+								},
+							},
+						},
+					},
+					map[string]any{
+						"id":          "FlagWithVariants",
+						"description": "A flag with variants",
+						"enabled":     true,
+						"variants": []any{
+							map[string]any{
+								"name":                "variantA",
+								"configuration_value": "value-a",
+							},
+							map[string]any{
+								"name":                "variantB",
+								"configuration_value": "value-b",
+								"status_override":     "Disabled",
+							},
+						},
+						"allocation": map[string]any{
+							"default_when_enabled": "variantA",
+							"percentile": []any{
+								map[string]any{
+									"variant": "variantB",
+									"from":    0.0,
+									"to":      50.0,
+								},
+								map[string]any{
+									"variant": "variantA",
+									"from":    50.0,
+									"to":      100.0,
+								},
+							},
+						},
+					},
+				},
+			},
+		},
+		keyValues: make(map[string]any),
+	}
+
+	// Create a structure to unmarshal into
+	type ConfigWithFeatureManagement struct {
+		FeatureManagement fm.FeatureManagement `json:"feature_management"`
+	}
+
+	// Unmarshal into the struct
+	var config ConfigWithFeatureManagement
+	err := azappcfg.Unmarshal(&config, nil)
+
+	// Verify results
+	assert.NoError(t, err)
+	assert.NotNil(t, config.FeatureManagement)
+	assert.Len(t, config.FeatureManagement.FeatureFlags, 3)
+
+	// Verify BasicFlag
+	basicFlag := findFeatureFlag(config.FeatureManagement.FeatureFlags, "BasicFlag")
+	assert.NotNil(t, basicFlag)
+	assert.Equal(t, "A simple feature flag", basicFlag.Description)
+	assert.True(t, basicFlag.Enabled)
+	assert.Nil(t, basicFlag.Conditions)
+	assert.Nil(t, basicFlag.Variants)
+
+	// Verify FlagWithConditions
+	conditionsFlag := findFeatureFlag(config.FeatureManagement.FeatureFlags, "FlagWithConditions")
+	assert.NotNil(t, conditionsFlag)
+	assert.Equal(t, "A flag with conditions", conditionsFlag.Description)
+	assert.False(t, conditionsFlag.Enabled)
+	assert.NotNil(t, conditionsFlag.Conditions)
+	assert.Len(t, conditionsFlag.Conditions.ClientFilters, 1)
+	assert.Equal(t, "Microsoft.TimeWindow", conditionsFlag.Conditions.ClientFilters[0].Name)
+	assert.Contains(t, conditionsFlag.Conditions.ClientFilters[0].Parameters, "Start")
+	assert.Contains(t, conditionsFlag.Conditions.ClientFilters[0].Parameters, "End")
+
+	// Verify FlagWithVariants
+	variantsFlag := findFeatureFlag(config.FeatureManagement.FeatureFlags, "FlagWithVariants")
+	assert.NotNil(t, variantsFlag)
+	assert.Equal(t, "A flag with variants", variantsFlag.Description)
+	assert.True(t, variantsFlag.Enabled)
+	assert.Nil(t, variantsFlag.Conditions)
+	assert.Len(t, variantsFlag.Variants, 2)
+	assert.Equal(t, "variantA", variantsFlag.Variants[0].Name)
+	assert.Equal(t, "value-a", variantsFlag.Variants[0].ConfigurationValue)
+	assert.Equal(t, "variantB", variantsFlag.Variants[1].Name)
+	assert.Equal(t, "value-b", variantsFlag.Variants[1].ConfigurationValue)
+	assert.Equal(t, fm.StatusOverrideDisabled, variantsFlag.Variants[1].StatusOverride)
+
+	// Verify allocation
+	assert.NotNil(t, variantsFlag.Allocation)
+	assert.Equal(t, "variantA", variantsFlag.Allocation.DefaultWhenEnabled)
+	assert.Len(t, variantsFlag.Allocation.Percentile, 2)
+	assert.Equal(t, "variantB", variantsFlag.Allocation.Percentile[0].Variant)
+	assert.Equal(t, 0.0, variantsFlag.Allocation.Percentile[0].From)
+	assert.Equal(t, 50.0, variantsFlag.Allocation.Percentile[0].To)
+	assert.Equal(t, "variantA", variantsFlag.Allocation.Percentile[1].Variant)
+	assert.Equal(t, 50.0, variantsFlag.Allocation.Percentile[1].From)
+	assert.Equal(t, 100.0, variantsFlag.Allocation.Percentile[1].To)
+}
+
+// Helper function to find a feature flag by ID
+func findFeatureFlag(flags []fm.FeatureFlag, id string) *fm.FeatureFlag {
+	for i := range flags {
+		if flags[i].ID == id {
+			return &flags[i]
+		}
+	}
+	return nil
+}
+
+func TestUnmarshal_FeatureFlagsWithKeyValues(t *testing.T) {
+	// Setup an AzureAppConfiguration with both feature flags and key-values
+	azappcfg := &AzureAppConfiguration{
+		ffEnabled: true,
+		featureFlags: map[string]any{
+			"feature_management": map[string]any{
+				"feature_flags": []any{
+					map[string]any{
+						"id":      "BetaFeature",
+						"enabled": true,
+					},
+					map[string]any{
+						"id":      "AlphaFeature",
+						"enabled": false,
+					},
+				},
+			},
+		},
+		keyValues: map[string]any{
+			"AppName":       "TestApp",
+			"Version":       "1.0.0",
+			"Database.Host": "localhost",
+			"Database.Port": 5432,
+			"EnableLogging": true,
+		},
+	}
+
+	// Create a structure that has both feature flags and regular config
+	type Database struct {
+		Host string
+		Port int
+	}
+
+	type Config struct {
+		AppName           string
+		Version           string
+		Database          Database
+		EnableLogging     bool
+		FeatureManagement fm.FeatureManagement `json:"feature_management"`
+	}
+
+	// Unmarshal into the combined struct
+	var config Config
+	err := azappcfg.Unmarshal(&config, nil)
+
+	// Verify results
+	assert.NoError(t, err)
+
+	// Check regular config values
+	assert.Equal(t, "TestApp", config.AppName)
+	assert.Equal(t, "1.0.0", config.Version)
+	assert.Equal(t, "localhost", config.Database.Host)
+	assert.Equal(t, 5432, config.Database.Port)
+	assert.True(t, config.EnableLogging)
+
+	// Check feature flags
+	assert.Len(t, config.FeatureManagement.FeatureFlags, 2)
+
+	betaFlag := findFeatureFlag(config.FeatureManagement.FeatureFlags, "BetaFeature")
+	assert.NotNil(t, betaFlag)
+	assert.True(t, betaFlag.Enabled)
+
+	alphaFlag := findFeatureFlag(config.FeatureManagement.FeatureFlags, "AlphaFeature")
+	assert.NotNil(t, alphaFlag)
+	assert.False(t, alphaFlag.Enabled)
+}
+
+// Test for complex conditional feature flag scenario
+func TestUnmarshal_ComplexFeatureFlag(t *testing.T) {
+	// Set up a complex feature flag with multiple filter types
+	azappcfg := &AzureAppConfiguration{
+		ffEnabled: true,
+		featureFlags: map[string]any{
+			"feature_management": map[string]any{
+				"feature_flags": []any{
+					map[string]any{
+						"id":          "ComplexFlag",
+						"description": "Complex feature flag with multiple conditions",
+						"enabled":     true,
+						"conditions": map[string]any{
+							"requirement_type": "All",
+							"client_filters": []any{
+								map[string]any{
+									"name": "Microsoft.Targeting",
+									"parameters": map[string]any{
+										"Audience": map[string]any{
+											"Users": []any{
+												"user1@example.com",
+												"user2@example.com",
+											},
+											"Groups": []any{
+												"Developers",
+												"Testers",
+											},
+											"DefaultRolloutPercentage": 25,
+										},
+									},
+								},
+								map[string]any{
+									"name": "Microsoft.TimeWindow",
+									"parameters": map[string]any{
+										"Start": "2023-01-01T00:00:00Z",
+										"End":   "2023-12-31T23:59:59Z",
+									},
+								},
+							},
+						},
+						"telemetry": map[string]any{
+							"enabled": true,
+							"metadata": map[string]any{
+								"source":  "unit-test",
+								"version": "1.0",
+							},
+						},
+					},
+				},
+			},
+		},
+		keyValues: make(map[string]any),
+	}
+
+	// Create the struct to unmarshal into
+	var config struct {
+		FeatureManagement fm.FeatureManagement `json:"feature_management"`
+	}
+
+	// Unmarshal the data
+	err := azappcfg.Unmarshal(&config, nil)
+
+	// Verify results
+	assert.NoError(t, err)
+	assert.Len(t, config.FeatureManagement.FeatureFlags, 1)
+
+	complexFlag := config.FeatureManagement.FeatureFlags[0]
+	assert.Equal(t, "ComplexFlag", complexFlag.ID)
+	assert.Equal(t, "Complex feature flag with multiple conditions", complexFlag.Description)
+	assert.True(t, complexFlag.Enabled)
+
+	// Check conditions
+	assert.NotNil(t, complexFlag.Conditions)
+	assert.Equal(t, fm.RequirementTypeAll, complexFlag.Conditions.RequirementType)
+	assert.Len(t, complexFlag.Conditions.ClientFilters, 2)
+
+	// Check targeting filter
+	targetingFilter := findClientFilter(complexFlag.Conditions.ClientFilters, "Microsoft.Targeting")
+	assert.NotNil(t, targetingFilter)
+
+	audienceParam, ok := targetingFilter.Parameters["Audience"].(map[string]any)
+	assert.True(t, ok, "Audience parameter should be a map")
+
+	users, ok := audienceParam["Users"].([]any)
+	assert.True(t, ok, "Users should be an array")
+	assert.Len(t, users, 2)
+	assert.Contains(t, users, "user1@example.com")
+	assert.Contains(t, users, "user2@example.com")
+
+	// Check time window filter
+	timeFilter := findClientFilter(complexFlag.Conditions.ClientFilters, "Microsoft.TimeWindow")
+	assert.NotNil(t, timeFilter)
+	assert.Equal(t, "2023-01-01T00:00:00Z", timeFilter.Parameters["Start"])
+
+	// Check telemetry
+	assert.NotNil(t, complexFlag.Telemetry)
+	assert.True(t, complexFlag.Telemetry.Enabled)
+	assert.Equal(t, "unit-test", complexFlag.Telemetry.Metadata["source"])
+	assert.Equal(t, "1.0", complexFlag.Telemetry.Metadata["version"])
+}
+
+// Helper function to find a client filter by name
+func findClientFilter(filters []fm.ClientFilter, name string) *fm.ClientFilter {
+	for i := range filters {
+		if filters[i].Name == name {
+			return &filters[i]
+		}
+	}
+	return nil
+}
+
+func TestGetBytes_SimpleKeyValues(t *testing.T) {
+	// Setup a provider with only key values
+	azappcfg := &AzureAppConfiguration{
+		keyValues: map[string]any{
+			"AppName":       "TestApp",
+			"Version":       "1.0.0",
+			"Database.Host": "localhost",
+			"Database.Port": 5432,
+			"EnableLogging": true,
+		},
+		featureFlags: make(map[string]any),
+	}
+
+	// Get the JSON bytes
+	bytes, err := azappcfg.GetBytes(nil)
+	assert.NoError(t, err)
+	assert.NotEmpty(t, bytes)
+
+	// Parse the JSON back into a map to verify content
+	var result map[string]any
+	err = json.Unmarshal(bytes, &result)
+	assert.NoError(t, err)
+
+	// Verify the expected values are present
+	assert.Equal(t, "TestApp", result["AppName"])
+	assert.Equal(t, "1.0.0", result["Version"])
+
+	// Verify nested structure
+	db, ok := result["Database"].(map[string]any)
+	assert.True(t, ok, "Database should be a nested map")
+	assert.Equal(t, "localhost", db["Host"])
+	assert.Equal(t, float64(5432), db["Port"]) // JSON numbers are parsed as float64
+
+	// Verify bool value
+	assert.Equal(t, true, result["EnableLogging"])
+
+	// Verify feature flags section does not exist
+	_, hasFM := result["feature_management"]
+	assert.False(t, hasFM, "feature_management section should not exist")
+}
+
+func TestGetBytes_FeatureFlags(t *testing.T) {
+	// Setup a provider with only feature flags
+	azappcfg := &AzureAppConfiguration{
+		ffEnabled: true,
+		featureFlags: map[string]any{
+			"feature_management": map[string]any{
+				"feature_flags": []any{
+					map[string]any{
+						"id":      "Beta",
+						"enabled": true,
+					},
+					map[string]any{
+						"id":      "Alpha",
+						"enabled": false,
+					},
+				},
+			},
+		},
+		keyValues: make(map[string]any),
+	}
+
+	// Get the JSON bytes
+	bytes, err := azappcfg.GetBytes(nil)
+	assert.NoError(t, err)
+	assert.NotEmpty(t, bytes)
+
+	// Parse the JSON back into a map to verify content
+	var result map[string]any
+	err = json.Unmarshal(bytes, &result)
+	assert.NoError(t, err)
+
+	// Verify feature_management section exists
+	fm, hasFM := result["feature_management"].(map[string]any)
+	assert.True(t, hasFM, "feature_management section should exist")
+
+	// Verify feature_flags array exists
+	flags, hasFlags := fm["feature_flags"].([]any)
+	assert.True(t, hasFlags, "feature_flags array should exist")
+	assert.Len(t, flags, 2, "There should be 2 feature flags")
+
+	// Verify the two feature flags
+	foundBeta, foundAlpha := false, false
+	for _, flag := range flags {
+		if flagMap, ok := flag.(map[string]any); ok {
+			if id, ok := flagMap["id"].(string); ok {
+				switch id {
+				case "Beta":
+					foundBeta = true
+					assert.Equal(t, true, flagMap["enabled"])
+				case "Alpha":
+					foundAlpha = true
+					assert.Equal(t, false, flagMap["enabled"])
+				}
+			}
+		}
+	}
+	assert.True(t, foundBeta, "Beta feature flag should exist")
+	assert.True(t, foundAlpha, "Alpha feature flag should exist")
+}
+
+func TestGetBytes_CombinedKeyValuesAndFeatureFlags(t *testing.T) {
+	// Setup a provider with both key values and feature flags
+	azappcfg := &AzureAppConfiguration{
+		ffEnabled: true,
+		keyValues: map[string]any{
+			"AppName":       "TestApp",
+			"Version":       "1.0.0",
+			"Database.Host": "localhost",
+		},
+		featureFlags: map[string]any{
+			"feature_management": map[string]any{
+				"feature_flags": []any{
+					map[string]any{
+						"id":      "Beta",
+						"enabled": true,
+					},
+				},
+			},
+		},
+	}
+
+	// Get the JSON bytes
+	bytes, err := azappcfg.GetBytes(nil)
+	assert.NoError(t, err)
+	assert.NotEmpty(t, bytes)
+
+	// Parse the JSON back into a map to verify content
+	var result map[string]any
+	err = json.Unmarshal(bytes, &result)
+	assert.NoError(t, err)
+
+	// Verify regular key values
+	assert.Equal(t, "TestApp", result["AppName"])
+	assert.Equal(t, "1.0.0", result["Version"])
+	db, ok := result["Database"].(map[string]any)
+	assert.True(t, ok)
+	assert.Equal(t, "localhost", db["Host"])
+
+	// Verify feature_management section
+	fm, hasFM := result["feature_management"].(map[string]any)
+	assert.True(t, hasFM, "feature_management section should exist")
+
+	flags, hasFlags := fm["feature_flags"].([]any)
+	assert.True(t, hasFlags, "feature_flags array should exist")
+	assert.Len(t, flags, 1, "There should be 1 feature flag")
+
+	flag, ok := flags[0].(map[string]any)
+	assert.True(t, ok)
+	assert.Equal(t, "Beta", flag["id"])
+	assert.Equal(t, true, flag["enabled"])
+}
+
+func TestGetBytes_CustomSeparator(t *testing.T) {
+	// Setup a provider with hierarchical keys using a custom separator
+	azappcfg := &AzureAppConfiguration{
+		keyValues: map[string]any{
+			"App:Name":      "TestApp",
+			"App:Version":   "1.0.0",
+			"Database:Host": "localhost",
+			"Database:Port": 5432,
+		},
+		featureFlags: make(map[string]any),
+	}
+
+	// Get the JSON bytes with custom separator
+	bytes, err := azappcfg.GetBytes(&ConstructionOptions{Separator: ":"})
+	assert.NoError(t, err)
+	assert.NotEmpty(t, bytes)
+
+	// Parse the JSON back into a map to verify content
+	var result map[string]any
+	err = json.Unmarshal(bytes, &result)
+	assert.NoError(t, err)
+
+	// Verify hierarchical structure with custom separator
+	app, hasApp := result["App"].(map[string]any)
+	assert.True(t, hasApp, "App should be a nested map")
+	assert.Equal(t, "TestApp", app["Name"])
+	assert.Equal(t, "1.0.0", app["Version"])
+
+	db, hasDb := result["Database"].(map[string]any)
+	assert.True(t, hasDb, "Database should be a nested map")
+	assert.Equal(t, "localhost", db["Host"])
+	assert.Equal(t, float64(5432), db["Port"])
+}
+
+func TestGetBytes_InvalidSeparator(t *testing.T) {
+	azappcfg := &AzureAppConfiguration{
+		keyValues: map[string]any{
+			"App|Name": "TestApp",
+		},
+	}
+
+	// Invalid separator should cause an error
+	_, err := azappcfg.GetBytes(&ConstructionOptions{Separator: "|"})
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "invalid separator")
 }
