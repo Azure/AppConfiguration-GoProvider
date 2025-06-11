@@ -14,11 +14,14 @@ const (
 
 // General configuration constants
 const (
-	defaultLabel                      = "\x00"
-	wildCard                          = "*"
-	defaultSeparator                  = "."
-	secretReferenceContentType string = "application/vnd.microsoft.appconfig.keyvaultref+json;charset=utf-8"
-	featureFlagContentType     string = "application/vnd.microsoft.appconfig.ff+json;charset=utf-8"
+	defaultLabel                       = "\x00"
+	wildCard                           = "*"
+	defaultSeparator                   = "."
+	secretReferenceContentType  string = "application/vnd.microsoft.appconfig.keyvaultref+json;charset=utf-8"
+	featureFlagContentType      string = "application/vnd.microsoft.appconfig.ff+json;charset=utf-8"
+	featureFlagKeyPrefix        string = ".appconfig.featureflag/"
+	featureManagementSectionKey string = "feature_management"
+	featureFlagSectionKey       string = "feature_flags"
 )
 
 // Refresh interval constants
