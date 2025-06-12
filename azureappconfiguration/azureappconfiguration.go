@@ -59,6 +59,7 @@ type AzureAppConfiguration struct {
 	tracingOptions     tracing.Options
 
 	// Clients talking to Azure App Configuration/Azure Key Vault service
+	endpoint      string
 	clientManager *configurationClientManager
 	resolver      *keyVaultReferenceResolver
 
@@ -102,6 +103,7 @@ func Load(ctx context.Context, authentication AuthenticationOptions, options *Op
 	azappcfg.ffEnabled = options.FeatureFlagOptions.Enabled
 
 	azappcfg.trimPrefixes = options.TrimKeyPrefixes
+	azappcfg.endpoint = clientManager.staticClient.endpoint
 	azappcfg.clientManager = clientManager
 	azappcfg.resolver = &keyVaultReferenceResolver{
 		clients:        sync.Map{},
@@ -130,7 +132,7 @@ func Load(ctx context.Context, authentication AuthenticationOptions, options *Op
 		if options.FeatureFlagOptions.RefreshOptions.Enabled {
 			azappcfg.ffRefreshTimer = refresh.NewTimer(options.FeatureFlagOptions.RefreshOptions.Interval)
 			azappcfg.ffETags = make(map[Selector][]*azcore.ETag)
-		} 
+		}
 	}
 
 	if err := azappcfg.load(ctx); err != nil {
@@ -451,11 +453,13 @@ func (azappcfg *AzureAppConfiguration) loadFeatureFlags(ctx context.Context, set
 	dedupFeatureFlags := make(map[string]any, len(settingsResponse.settings))
 	for _, setting := range settingsResponse.settings {
 		if setting.Key != nil {
-			var v any
+			var v map[string]any
 			if err := json.Unmarshal([]byte(*setting.Value), &v); err != nil {
 				log.Printf("Invalid feature flag setting: key=%s, error=%s, just ignore", *setting.Key, err.Error())
 				continue
 			}
+			populateTelemetryMetadata(v, setting, azappcfg.endpoint)
+			azappcfg.updateFeatureFlagTracing(v)
 			dedupFeatureFlags[*setting.Key] = v
 		}
 	}
@@ -685,6 +689,10 @@ func configureTracingOptions(options *Options) tracing.Options {
 		tracingOption.KeyVaultConfigured = true
 	}
 
+	if options.FeatureFlagOptions.Enabled {
+		tracingOption.FeatureFlagTracing = &tracing.FeatureFlagTracing{}
+	}
+
 	return tracingOption
 }
 
@@ -746,5 +754,72 @@ func (azappcfg *AzureAppConfiguration) newFeatureFlagRefreshClient() refreshClie
 			tracingOptions: azappcfg.tracingOptions,
 			pageETags:      azappcfg.ffETags,
 		},
+	}
+}
+
+func generateFeatureFlagReference(setting azappconfig.Setting, endpoint string) string {
+	featureFlagReference := fmt.Sprintf("%s/kv/%s", endpoint, *setting.Key)
+
+	// Check if the label is present and not empty
+	if setting.Label != nil && strings.TrimSpace(*setting.Label) != "" {
+		featureFlagReference += fmt.Sprintf("?label=%s", *setting.Label)
+	}
+
+	return featureFlagReference
+}
+
+func (azappcfg *AzureAppConfiguration) updateFeatureFlagTracing(featureFlag map[string]interface{}) {
+	if azappcfg.tracingOptions.FeatureFlagTracing == nil {
+		return
+	}
+
+	// Check for client filters and update filter tracing
+	if conditions, ok := featureFlag[conditionsKeyName].(map[string]interface{}); ok {
+		if clientFilters, ok := conditions[clientFiltersKeyName].([]interface{}); ok {
+			for _, filter := range clientFilters {
+				if filterMap, ok := filter.(map[string]interface{}); ok {
+					if filterName, ok := filterMap[nameKey].(string); ok {
+						azappcfg.tracingOptions.FeatureFlagTracing.UpdateFeatureFilterTracing(filterName)
+					}
+				}
+			}
+		}
+	}
+
+	// Update max variants count
+	if variants, ok := featureFlag[variantsKeyName].([]interface{}); ok {
+		azappcfg.tracingOptions.FeatureFlagTracing.UpdateMaxVariants(len(variants))
+	}
+
+	// Check if telemetry is enabled
+	if telemetry, ok := featureFlag[telemetryKey].(map[string]interface{}); ok {
+		if enabled, ok := telemetry[enabledKey].(bool); ok && enabled {
+			azappcfg.tracingOptions.FeatureFlagTracing.UsesTelemetry = true
+		}
+	}
+
+	// Check if allocation has a seed
+	if allocation, ok := featureFlag[allocationKeyName].(map[string]interface{}); ok {
+		if _, hasSeed := allocation[seedKeyName]; hasSeed {
+			azappcfg.tracingOptions.FeatureFlagTracing.UsesSeed = true
+		}
+	}
+}
+
+func populateTelemetryMetadata(featureFlag map[string]interface{}, setting azappconfig.Setting, endpoint string) {
+	if telemetry, ok := featureFlag[telemetryKey].(map[string]interface{}); ok {
+		if enabled, ok := telemetry[enabledKey].(bool); ok && enabled {
+			metadata, _ := telemetry[metadataKey].(map[string]interface{})
+			if metadata == nil {
+				metadata = make(map[string]interface{})
+			}
+
+			// Set the new metadata
+			if setting.ETag != nil {
+				metadata[eTagKey] = *setting.ETag
+			}
+			metadata[featureFlagReferenceKey] = generateFeatureFlagReference(setting, endpoint)
+			telemetry[metadataKey] = metadata
+		}
 	}
 }

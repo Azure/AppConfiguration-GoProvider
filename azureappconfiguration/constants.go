@@ -24,6 +24,28 @@ const (
 	featureFlagSectionKey       string = "feature_flags"
 )
 
+// Feature flag constants
+const (
+	enabledKey              string = "enabled"
+	telemetryKey            string = "telemetry"
+	metadataKey             string = "metadata"
+	nameKey               	string = "name"
+	eTagKey                 string = "ETag"
+	featureFlagReferenceKey string = "FeatureFlagReference"
+	allocationKeyName       string = "allocation"
+	defaultWhenEnabledKey   string = "default_when_enabled"
+	percentileKeyName       string = "percentile"
+	fromKeyName             string = "from"
+	toKeyName               string = "to"
+	seedKeyName             string = "seed"
+	variantKeyName          string = "variant"
+	variantsKeyName         string = "variants"
+	configurationValueKey   string = "configuration_value"
+	allocationIdKeyName     string = "AllocationId"
+	conditionsKeyName       string = "conditions"
+	clientFiltersKeyName    string = "client_filters"
+)
+
 // Refresh interval constants
 const (
 	// minimalRefreshInterval is the minimum allowed refresh interval for key-value settings
