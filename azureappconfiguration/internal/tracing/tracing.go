@@ -7,6 +7,7 @@ import (
 	"context"
 	"net/http"
 	"os"
+	"strconv"
 	"strings"
 )
 
@@ -40,6 +41,18 @@ const (
 	AIConfigurationTag               = "AI"
 	AIChatCompletionConfigurationTag = "AICC"
 
+	// Feature flag usage tracing
+	FeatureFilterTypeKey = "Filter"
+	CustomFilterKey      = "CSTM"
+	TimeWindowFilterKey  = "TIME"
+	TargetingFilterKey   = "TRGT"
+	FFTelemetryUsedTag   = "Telemetry"
+	FFMaxVariantsKey     = "MaxVariants"
+	FFSeedUsedTag        = "Seed"
+	FFFeaturesKey        = "FFFeatures"
+	TimeWindowFilterName = "Microsoft.TimeWindow"
+	TargetingFilterName  = "Microsoft.Targeting"
+
 	AIMimeProfile               = "https://azconfig.io/mime-profiles/ai"
 	AIChatCompletionMimeProfile = "https://azconfig.io/mime-profiles/ai/chat-completion"
 
@@ -56,6 +69,7 @@ type Options struct {
 	KeyVaultRefreshConfigured        bool
 	UseAIConfiguration               bool
 	UseAIChatCompletionConfiguration bool
+	FeatureFlagTracing               *FeatureFlagTracing
 }
 
 func GetHostType() HostType {
@@ -107,6 +121,18 @@ func CreateCorrelationContextHeader(ctx context.Context, options Options) http.H
 	if len(features) > 0 {
 		featureStr := FeaturesKey + "=" + strings.Join(features, DelimiterPlus)
 		output = append(output, featureStr)
+	}
+
+	if options.FeatureFlagTracing != nil {
+		if options.FeatureFlagTracing.UsesAnyFeatureFilter() {
+			output = append(output, FeatureFilterTypeKey+"="+options.FeatureFlagTracing.CreateFeatureFiltersString())
+		}
+		if options.FeatureFlagTracing.UsesAnyTracingFeature() {
+			output = append(output, FFFeaturesKey+"="+options.FeatureFlagTracing.CreateFeaturesString())
+		}
+		if options.FeatureFlagTracing.MaxVariants > 0 {
+			output = append(output, FFMaxVariantsKey+"="+strconv.Itoa(options.FeatureFlagTracing.MaxVariants))
+		}
 	}
 
 	header.Add(CorrelationContextHeader, strings.Join(output, DelimiterComma))
