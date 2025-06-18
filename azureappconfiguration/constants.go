@@ -29,7 +29,7 @@ const (
 	enabledKey              string = "enabled"
 	telemetryKey            string = "telemetry"
 	metadataKey             string = "metadata"
-	nameKey               	string = "name"
+	nameKey                 string = "name"
 	eTagKey                 string = "ETag"
 	featureFlagReferenceKey string = "FeatureFlagReference"
 	allocationKeyName       string = "allocation"

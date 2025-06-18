@@ -436,7 +436,7 @@ func (azappcfg *AzureAppConfiguration) loadKeyVaultSecrets(ctx context.Context, 
 		return secrets, fmt.Errorf("failed to resolve Key Vault references: %w", err)
 	}
 
-	resolvedSecrets.Range(func(key, value interface{}) bool {
+	resolvedSecrets.Range(func(key, value any) bool {
 		secrets[key.(string)] = value.(string)
 		return true
 	})
@@ -768,16 +768,16 @@ func generateFeatureFlagReference(setting azappconfig.Setting, endpoint string) 
 	return featureFlagReference
 }
 
-func (azappcfg *AzureAppConfiguration) updateFeatureFlagTracing(featureFlag map[string]interface{}) {
+func (azappcfg *AzureAppConfiguration) updateFeatureFlagTracing(featureFlag map[string]any) {
 	if azappcfg.tracingOptions.FeatureFlagTracing == nil {
 		return
 	}
 
 	// Check for client filters and update filter tracing
-	if conditions, ok := featureFlag[conditionsKeyName].(map[string]interface{}); ok {
-		if clientFilters, ok := conditions[clientFiltersKeyName].([]interface{}); ok {
+	if conditions, ok := featureFlag[conditionsKeyName].(map[string]any); ok {
+		if clientFilters, ok := conditions[clientFiltersKeyName].([]any); ok {
 			for _, filter := range clientFilters {
-				if filterMap, ok := filter.(map[string]interface{}); ok {
+				if filterMap, ok := filter.(map[string]any); ok {
 					if filterName, ok := filterMap[nameKey].(string); ok {
 						azappcfg.tracingOptions.FeatureFlagTracing.UpdateFeatureFilterTracing(filterName)
 					}
@@ -787,31 +787,31 @@ func (azappcfg *AzureAppConfiguration) updateFeatureFlagTracing(featureFlag map[
 	}
 
 	// Update max variants count
-	if variants, ok := featureFlag[variantsKeyName].([]interface{}); ok {
+	if variants, ok := featureFlag[variantsKeyName].([]any); ok {
 		azappcfg.tracingOptions.FeatureFlagTracing.UpdateMaxVariants(len(variants))
 	}
 
 	// Check if telemetry is enabled
-	if telemetry, ok := featureFlag[telemetryKey].(map[string]interface{}); ok {
+	if telemetry, ok := featureFlag[telemetryKey].(map[string]any); ok {
 		if enabled, ok := telemetry[enabledKey].(bool); ok && enabled {
 			azappcfg.tracingOptions.FeatureFlagTracing.UsesTelemetry = true
 		}
 	}
 
 	// Check if allocation has a seed
-	if allocation, ok := featureFlag[allocationKeyName].(map[string]interface{}); ok {
+	if allocation, ok := featureFlag[allocationKeyName].(map[string]any); ok {
 		if _, hasSeed := allocation[seedKeyName]; hasSeed {
 			azappcfg.tracingOptions.FeatureFlagTracing.UsesSeed = true
 		}
 	}
 }
 
-func populateTelemetryMetadata(featureFlag map[string]interface{}, setting azappconfig.Setting, endpoint string) {
-	if telemetry, ok := featureFlag[telemetryKey].(map[string]interface{}); ok {
+func populateTelemetryMetadata(featureFlag map[string]any, setting azappconfig.Setting, endpoint string) {
+	if telemetry, ok := featureFlag[telemetryKey].(map[string]any); ok {
 		if enabled, ok := telemetry[enabledKey].(bool); ok && enabled {
-			metadata, _ := telemetry[metadataKey].(map[string]interface{})
+			metadata, _ := telemetry[metadataKey].(map[string]any)
 			if metadata == nil {
-				metadata = make(map[string]interface{})
+				metadata = make(map[string]any)
 			}
 
 			// Set the new metadata

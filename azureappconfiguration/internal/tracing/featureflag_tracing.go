@@ -3,6 +3,8 @@
 
 package tracing
 
+import "strings"
+
 type FeatureFlagTracing struct {
 	UsesCustomFilter     bool
 	UsesTimeWindowFilter bool
@@ -41,27 +43,21 @@ func (f *FeatureFlagTracing) CreateFeatureFiltersString() string {
 		return ""
 	}
 
-	var result string
+	res := make([]string, 0, 3)
 
 	if f.UsesCustomFilter {
-		result += CustomFilterKey
+		res = append(res, CustomFilterKey)
 	}
 
 	if f.UsesTimeWindowFilter {
-		if result != "" {
-			result += DelimiterPlus
-		}
-		result += TimeWindowFilterKey
+		res = append(res, TimeWindowFilterKey)
 	}
 
 	if f.UsesTargetingFilter {
-		if result != "" {
-			result += DelimiterPlus
-		}
-		result += TargetingFilterKey
+		res = append(res, TargetingFilterKey)
 	}
 
-	return result
+	return strings.Join(res, DelimiterPlus)
 }
 
 // CreateFeaturesString creates a string representation of the used tracing features
@@ -70,18 +66,15 @@ func (f *FeatureFlagTracing) CreateFeaturesString() string {
 		return ""
 	}
 
-	var result string
+	res := make([]string, 0, 2)
 
 	if f.UsesSeed {
-		result += FFSeedUsedTag
+		res = append(res, FFSeedUsedTag)
 	}
 
 	if f.UsesTelemetry {
-		if result != "" {
-			result += DelimiterPlus
-		}
-		result += FFTelemetryUsedTag
+		res = append(res, FFTelemetryUsedTag)
 	}
 
-	return result
+	return strings.Join(res, DelimiterPlus)
 }
