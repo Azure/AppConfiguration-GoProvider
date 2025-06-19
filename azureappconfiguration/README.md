@@ -12,10 +12,19 @@
 go get github.com/Azure/AppConfiguration-GoProvider/azureappconfiguration
 ```
 
+## Getting Started
+
+Official documentation on how to use the Azure App Configuration provider is available in the following quickstarts:
+
+- [Create a Go console app with Azure App Configuration](https://learn.microsoft.com/azure/azure-app-configuration/quickstart-go-console-app?tabs=entra-id)
+- [Enable dynamic configuration refresh in a Go console app](https://learn.microsoft.com/azure/azure-app-configuration/enable-dynamic-configuration-go-console-app)
+- [Create a Go web app with Azure App Configuration](https://learn.microsoft.com/azure/azure-app-configuration/quickstart-go-web-app?tabs=entra-id)
+- [Use dynamic configuration in a Gin web app](https://learn.microsoft.com/azure/azure-app-configuration/enable-dynamic-configuration-gin-web-app)
+
 ## Examples
 
-- [Console Application](../example/console-example/): Load settings from Azure App Configuration and use in a console application.
-- [Web Application](../example/gin-example/): Load settings from Azure App Configuration and use in a Gin web application.
+- [Console Application](../example/console_app/)
+- [Gin Web Application](../example/gin_web_app/)
 
 ## Data Collection
 

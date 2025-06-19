@@ -3,11 +3,9 @@ module simple-web-app
 go 1.23.0
 
 require (
-	github.com/Azure/AppConfiguration-GoProvider/azureappconfiguration v0.0.0-00010101000000-000000000000
+	github.com/Azure/AppConfiguration-GoProvider/azureappconfiguration v1.0.0
 	github.com/gin-gonic/gin v1.10.0
 )
-
-replace github.com/Azure/AppConfiguration-GoProvider/azureappconfiguration => ..\..\azureappconfiguration
 
 require (
 	github.com/Azure/azure-sdk-for-go/sdk/azcore v1.17.0 // indirect

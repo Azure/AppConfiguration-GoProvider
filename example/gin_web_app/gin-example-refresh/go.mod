@@ -3,7 +3,7 @@ module web-app-refresh
 go 1.23.2
 
 require (
-	github.com/Azure/AppConfiguration-GoProvider/azureappconfiguration v0.0.0-00010101000000-000000000000
+	github.com/Azure/AppConfiguration-GoProvider/azureappconfiguration v1.0.0
 	github.com/gin-gonic/gin v1.10.0
 )
 
@@ -42,5 +42,3 @@ require (
 	google.golang.org/protobuf v1.34.1 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
 )
-
-replace github.com/Azure/AppConfiguration-GoProvider/azureappconfiguration => ..\..\azureappconfiguration
