@@ -2,7 +2,7 @@ module console-example-refresh
 
 go 1.23.2
 
-require github.com/Azure/AppConfiguration-GoProvider/azureappconfiguration v0.0.0-00010101000000-000000000000
+require github.com/Azure/AppConfiguration-GoProvider/azureappconfiguration v1.0.0
 
 require (
 	github.com/Azure/azure-sdk-for-go/sdk/azcore v1.18.0 // indirect
@@ -15,5 +15,3 @@ require (
 	golang.org/x/sync v0.13.0 // indirect
 	golang.org/x/text v0.24.0 // indirect
 )
-
-replace github.com/Azure/AppConfiguration-GoProvider/azureappconfiguration => ..\..\azureappconfiguration
