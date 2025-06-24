@@ -188,163 +188,6 @@ func TestLoadFeatureFlags_Success(t *testing.T) {
 	assert.True(t, foundAlpha, "Should have found Alpha feature flag")
 }
 
-func TestLoadFeatureFlags_TelemetryEnabled(t *testing.T) {
-	ctx := context.Background()
-	mockClient := new(mockSettingsClient)
-	testEndpoint := "fake-endpoint"
-
-	// Feature flag with telemetry enabled
-	value1 := `{
-		"id": "Beta",
-		"description": "",
-		"enabled": false,
-		"variants": [
-			{
-				"name": "Off", 
-				"configuration_value": false
-			},
-			{
-				"name": "On",
-				"configuration_value": true
-			}
-		],
-		"allocation": {
-			"percentile": [
-				{
-					"variant": "Off",
-					"from": 0,
-					"to": 100
-				}
-			],
-			"default_when_enabled": "Off",
-			"default_when_disabled": "Off"
-		},
-		"telemetry": {
-			"enabled": true
-		}
-	}`
-
-	// Feature flag with telemetry disabled
-	value2 := `{
-		"id": "Alpha",
-		"description": "",
-		"enabled": true,
-		"telemetry": {
-			"enabled": false
-		}
-	}`
-
-	// Feature flag with no telemetry section
-	value3 := `{
-		"id": "Gamma",
-		"description": "",
-		"enabled": true
-	}`
-
-	// Set up mock etag values
-	etagBeta := azcore.ETag("etag-beta-value")
-	etagAlpha := azcore.ETag("etag-alpha-value")
-	etagGamma := azcore.ETag("etag-gamma-value")
-
-	mockResponse := &settingsResponse{
-		settings: []azappconfig.Setting{
-			{
-				Key:         toPtr(".appconfig.featureflag/Beta"),
-				Value:       &value1,
-				ContentType: toPtr(featureFlagContentType),
-				ETag:        &etagBeta,
-				Label:       toPtr("dev"),
-			},
-			{
-				Key:         toPtr(".appconfig.featureflag/Alpha"),
-				Value:       &value2,
-				ContentType: toPtr(featureFlagContentType),
-				ETag:        &etagAlpha,
-			},
-			{
-				Key:         toPtr(".appconfig.featureflag/Gamma"),
-				Value:       &value3,
-				ContentType: toPtr(featureFlagContentType),
-				ETag:        &etagGamma,
-			},
-		},
-		pageETags: map[Selector][]*azcore.ETag{},
-	}
-
-	mockClient.On("getSettings", ctx).Return(mockResponse, nil)
-
-	azappcfg := &AzureAppConfiguration{
-		endpoint: testEndpoint,
-		clientManager: &configurationClientManager{
-			staticClient: &configurationClientWrapper{client: &azappconfig.Client{}},
-		},
-		ffSelectors:  getFeatureFlagSelectors([]Selector{}),
-		featureFlags: make(map[string]any),
-	}
-
-	// Call the method under test
-	err := azappcfg.loadFeatureFlags(ctx, mockClient)
-	assert.NoError(t, err)
-
-	// Verify feature flag structure is created correctly
-	assert.Contains(t, azappcfg.featureFlags, featureManagementSectionKey)
-	featureManagement, ok := azappcfg.featureFlags[featureManagementSectionKey].(map[string]any)
-	assert.True(t, ok, "feature_management should be a map")
-
-	// Verify feature_flags array exists
-	assert.Contains(t, featureManagement, featureFlagSectionKey)
-	featureFlags, ok := featureManagement[featureFlagSectionKey].([]any)
-	assert.True(t, ok, "feature_flags should be an array")
-
-	// Verify we have 3 feature flags
-	assert.Len(t, featureFlags, 3)
-
-	// Find the Beta flag that has telemetry enabled
-	var betaFlag, alphaFlag, gammaFlag map[string]any
-	for _, flag := range featureFlags {
-		flagMap, ok := flag.(map[string]any)
-		assert.True(t, ok, "feature flag should be a map")
-
-		if id, ok := flagMap["id"].(string); ok {
-			switch id {
-			case "Beta":
-				betaFlag = flagMap
-			case "Alpha":
-				alphaFlag = flagMap
-			case "Gamma":
-				gammaFlag = flagMap
-			}
-		}
-	}
-
-	// Verify Beta flag's telemetry metadata was populated
-	assert.NotNil(t, betaFlag, "Beta flag should exist")
-	telemetry, ok := betaFlag[telemetryKey].(map[string]any)
-	assert.True(t, ok, "telemetry should be a map")
-	assert.True(t, telemetry[enabledKey].(bool), "telemetry should be enabled")
-
-	metadata, ok := telemetry[metadataKey].(map[string]any)
-	assert.True(t, ok, "metadata should be a map")
-	assert.Equal(t, etagBeta, metadata[eTagKey], "etag should be populated")
-
-	// Verify the reference URL format for Beta (with label)
-	expectedRefBeta := testEndpoint + "/kv/.appconfig.featureflag/Beta?label=dev"
-	assert.Equal(t, expectedRefBeta, metadata[featureFlagReferenceKey], "FeatureFlagReference should be populated")
-
-	// Verify Alpha flag's telemetry metadata was not populated (telemetry is disabled)
-	assert.NotNil(t, alphaFlag, "Alpha flag should exist")
-	telemetry, ok = alphaFlag[telemetryKey].(map[string]any)
-	assert.True(t, ok, "telemetry should be a map")
-	assert.False(t, telemetry[enabledKey].(bool), "telemetry should be disabled")
-	_, hasMetadata := telemetry[metadataKey]
-	assert.False(t, hasMetadata, "metadata should not exist when telemetry is disabled")
-
-	// Verify Gamma flag doesn't have metadata (no telemetry section)
-	assert.NotNil(t, gammaFlag, "Gamma flag should exist")
-	_, hasTelemetry := gammaFlag[telemetryKey]
-	assert.False(t, hasTelemetry, "telemetry section should not exist for Gamma flag")
-}
-
 func TestLoadKeyValues_WithTrimPrefix(t *testing.T) {
 	ctx := context.Background()
 	mockClient := new(mockSettingsClient)
@@ -1614,7 +1457,6 @@ func TestGetBytes_InvalidSeparator(t *testing.T) {
 func TestLoadFeatureFlags_TracingUpdated(t *testing.T) {
 	ctx := context.Background()
 	mockClient := new(mockSettingsClient)
-	testEndpoint := "fake-endpoint"
 
 	// Feature flag with targeting filter, telemetry enabled, and variants
 	value1 := `{
@@ -1717,7 +1559,6 @@ func TestLoadFeatureFlags_TracingUpdated(t *testing.T) {
 	}
 
 	azappcfg := &AzureAppConfiguration{
-		endpoint: testEndpoint,
 		clientManager: &configurationClientManager{
 			staticClient: &configurationClientWrapper{client: &azappconfig.Client{}},
 		},
