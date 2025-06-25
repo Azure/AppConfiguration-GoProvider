@@ -1453,3 +1453,152 @@ func TestGetBytes_InvalidSeparator(t *testing.T) {
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "invalid separator")
 }
+
+func TestLoadFeatureFlags_TracingUpdated(t *testing.T) {
+	ctx := context.Background()
+	mockClient := new(mockSettingsClient)
+
+	// Feature flag with targeting filter, telemetry enabled, and variants
+	value1 := `{
+		"id": "TargetingFlag",
+		"description": "",
+		"enabled": true,
+		"conditions": {
+			"client_filters": [
+				{
+					"name": "Microsoft.Targeting",
+					"parameters": {
+						"Audience": {
+							"Users": ["user1@example.com"]
+						}
+					}
+				}
+			]
+		},
+		"variants": [
+			{"name": "A", "configuration_value": "value-a"},
+			{"name": "B", "configuration_value": "value-b"},
+			{"name": "C", "configuration_value": "value-c"}
+		],
+		"telemetry": {
+			"enabled": true
+		}
+	}`
+
+	// Feature flag with time window filter
+	value2 := `{
+		"id": "TimeWindowFlag",
+		"description": "",
+		"enabled": true,
+		"conditions": {
+			"client_filters": [
+				{
+					"name": "Microsoft.TimeWindow",
+					"parameters": {
+						"Start": "2023-01-01T00:00:00Z",
+						"End": "2023-12-31T23:59:59Z"
+					}
+				}
+			]
+		}
+	}`
+
+	// Feature flag with custom filter and allocation seed
+	value3 := `{
+		"id": "CustomFilterFlag",
+		"description": "",
+		"enabled": true,
+		"conditions": {
+			"client_filters": [
+				{
+					"name": "CustomFilter",
+					"parameters": {}
+				}
+			]
+		},
+		"allocation": {
+			"seed": "consistent-hash",
+			"percentile": [
+				{
+					"variant": "on",
+					"from": 0,
+					"to": 50
+				}
+			]
+		}
+	}`
+
+	mockResponse := &settingsResponse{
+		settings: []azappconfig.Setting{
+			{
+				Key:         toPtr(".appconfig.featureflag/TargetingFlag"),
+				Value:       &value1,
+				ContentType: toPtr(featureFlagContentType),
+			},
+			{
+				Key:         toPtr(".appconfig.featureflag/TimeWindowFlag"),
+				Value:       &value2,
+				ContentType: toPtr(featureFlagContentType),
+			},
+			{
+				Key:         toPtr(".appconfig.featureflag/CustomFilterFlag"),
+				Value:       &value3,
+				ContentType: toPtr(featureFlagContentType),
+			},
+		},
+		pageETags: map[Selector][]*azcore.ETag{},
+	}
+
+	mockClient.On("getSettings", ctx).Return(mockResponse, nil)
+
+	// Create a tracing options object with feature flag tracing enabled
+	ffTracing := &tracing.FeatureFlagTracing{}
+	tracingOptions := tracing.Options{
+		Enabled:            true,
+		FeatureFlagTracing: ffTracing,
+	}
+
+	azappcfg := &AzureAppConfiguration{
+		clientManager: &configurationClientManager{
+			staticClient: &configurationClientWrapper{client: &azappconfig.Client{}},
+		},
+		ffSelectors:    getFeatureFlagSelectors([]Selector{}),
+		featureFlags:   make(map[string]any),
+		tracingOptions: tracingOptions,
+	}
+
+	// Call the method under test
+	err := azappcfg.loadFeatureFlags(ctx, mockClient)
+	assert.NoError(t, err)
+
+	// Verify tracing information was properly updated
+	assert.True(t, ffTracing.UsesTargetingFilter, "Targeting filter should be detected")
+	assert.True(t, ffTracing.UsesTimeWindowFilter, "Time window filter should be detected")
+	assert.True(t, ffTracing.UsesCustomFilter, "Custom filter should be detected")
+	assert.True(t, ffTracing.UsesTelemetry, "Telemetry should be detected")
+	assert.True(t, ffTracing.UsesSeed, "Seed should be detected")
+	assert.Equal(t, 3, ffTracing.MaxVariants, "Max variants should be 3")
+
+	// Verify feature flags array exists and has correct data
+	featureManagement := azappcfg.featureFlags[featureManagementSectionKey].(map[string]any)
+	featureFlags := featureManagement[featureFlagSectionKey].([]any)
+	assert.Len(t, featureFlags, 3)
+
+	// Test creation of tracing headers
+	header := tracing.CreateCorrelationContextHeader(ctx, azappcfg.tracingOptions)
+	correlationCtx := header.Get(tracing.CorrelationContextHeader)
+
+	// Verify feature filter string is included in the correlation context
+	assert.Contains(t, correlationCtx, tracing.FeatureFilterTypeKey+"=")
+	assert.Contains(t, correlationCtx, tracing.CustomFilterKey)
+	assert.Contains(t, correlationCtx, tracing.TimeWindowFilterKey)
+	assert.Contains(t, correlationCtx, tracing.TargetingFilterKey)
+
+	// Verify feature flag tracing features are included
+	assert.Contains(t, correlationCtx, tracing.FFFeaturesKey+"=")
+	assert.Contains(t, correlationCtx, tracing.FFSeedUsedTag)
+	assert.Contains(t, correlationCtx, tracing.FFTelemetryUsedTag)
+
+	// Verify max variants is included
+	assert.Contains(t, correlationCtx, tracing.FFMaxVariantsKey+"=3")
+}
