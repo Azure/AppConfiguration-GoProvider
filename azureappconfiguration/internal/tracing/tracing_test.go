@@ -196,3 +196,294 @@ func TestCreateCorrelationContextHeader(t *testing.T) {
 		assert.Len(t, parts, 3, "Should have 3 parts separated by commas")
 	})
 }
+
+func TestFeatureFlagTracing_UpdateFeatureFilterTracing(t *testing.T) {
+	tests := []struct {
+		name         string
+		filterName   string
+		expectCustom bool
+		expectTime   bool
+		expectTarget bool
+	}{
+		{
+			name:         "Microsoft.TimeWindow filter",
+			filterName:   TimeWindowFilterName,
+			expectCustom: false,
+			expectTime:   true,
+			expectTarget: false,
+		},
+		{
+			name:         "Microsoft.Targeting filter",
+			filterName:   TargetingFilterName,
+			expectCustom: false,
+			expectTime:   false,
+			expectTarget: true,
+		},
+		{
+			name:         "Custom filter",
+			filterName:   "Microsoft.CustomFilter",
+			expectCustom: true,
+			expectTime:   false,
+			expectTarget: false,
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			tracing := FeatureFlagTracing{}
+			tracing.UpdateFeatureFilterTracing(test.filterName)
+
+			assert.Equal(t, test.expectCustom, tracing.UsesCustomFilter)
+			assert.Equal(t, test.expectTime, tracing.UsesTimeWindowFilter)
+			assert.Equal(t, test.expectTarget, tracing.UsesTargetingFilter)
+		})
+	}
+}
+
+func TestFeatureFlagTracing_UpdateMaxVariants(t *testing.T) {
+	tests := []struct {
+		name        string
+		initialMax  int
+		newValue    int
+		expectedMax int
+	}{
+		{
+			name:        "Update with larger value",
+			initialMax:  2,
+			newValue:    5,
+			expectedMax: 5,
+		},
+		{
+			name:        "Update with smaller value",
+			initialMax:  5,
+			newValue:    3,
+			expectedMax: 5,
+		},
+		{
+			name:        "Update with equal value",
+			initialMax:  3,
+			newValue:    3,
+			expectedMax: 3,
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			tracing := FeatureFlagTracing{MaxVariants: test.initialMax}
+			tracing.UpdateMaxVariants(test.newValue)
+
+			assert.Equal(t, test.expectedMax, tracing.MaxVariants)
+		})
+	}
+}
+
+func TestFeatureFlagTracing_CreateFeatureFiltersString(t *testing.T) {
+	tests := []struct {
+		name           string
+		tracing        FeatureFlagTracing
+		expectedResult string
+	}{
+		{
+			name: "No filters",
+			tracing: FeatureFlagTracing{
+				UsesCustomFilter:     false,
+				UsesTimeWindowFilter: false,
+				UsesTargetingFilter:  false,
+			},
+			expectedResult: "",
+		},
+		{
+			name: "Only custom filter",
+			tracing: FeatureFlagTracing{
+				UsesCustomFilter:     true,
+				UsesTimeWindowFilter: false,
+				UsesTargetingFilter:  false,
+			},
+			expectedResult: CustomFilterKey,
+		},
+		{
+			name: "Only time window filter",
+			tracing: FeatureFlagTracing{
+				UsesCustomFilter:     false,
+				UsesTimeWindowFilter: true,
+				UsesTargetingFilter:  false,
+			},
+			expectedResult: TimeWindowFilterKey,
+		},
+		{
+			name: "Only targeting filter",
+			tracing: FeatureFlagTracing{
+				UsesCustomFilter:     false,
+				UsesTimeWindowFilter: false,
+				UsesTargetingFilter:  true,
+			},
+			expectedResult: TargetingFilterKey,
+		},
+		{
+			name: "Multiple filters",
+			tracing: FeatureFlagTracing{
+				UsesCustomFilter:     true,
+				UsesTimeWindowFilter: true,
+				UsesTargetingFilter:  true,
+			},
+			expectedResult: CustomFilterKey + DelimiterPlus + TimeWindowFilterKey + DelimiterPlus + TargetingFilterKey,
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			result := test.tracing.CreateFeatureFiltersString()
+			assert.Equal(t, test.expectedResult, result)
+		})
+	}
+}
+
+func TestFeatureFlagTracing_CreateFeaturesString(t *testing.T) {
+	tests := []struct {
+		name           string
+		tracing        FeatureFlagTracing
+		expectedResult string
+	}{
+		{
+			name: "No features",
+			tracing: FeatureFlagTracing{
+				UsesSeed:      false,
+				UsesTelemetry: false,
+			},
+			expectedResult: "",
+		},
+		{
+			name: "Only seed",
+			tracing: FeatureFlagTracing{
+				UsesSeed:      true,
+				UsesTelemetry: false,
+			},
+			expectedResult: FFSeedUsedTag,
+		},
+		{
+			name: "Only telemetry",
+			tracing: FeatureFlagTracing{
+				UsesSeed:      false,
+				UsesTelemetry: true,
+			},
+			expectedResult: FFTelemetryUsedTag,
+		},
+		{
+			name: "Both features",
+			tracing: FeatureFlagTracing{
+				UsesSeed:      true,
+				UsesTelemetry: true,
+			},
+			expectedResult: FFSeedUsedTag + DelimiterPlus + FFTelemetryUsedTag,
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			result := test.tracing.CreateFeaturesString()
+			assert.Equal(t, test.expectedResult, result)
+		})
+	}
+}
+
+func TestCreateCorrelationContextHeader_WithFeatureFlagTracing(t *testing.T) {
+	tests := []struct {
+		name        string
+		tracing     *FeatureFlagTracing
+		expected    []string
+		notExpected []string
+	}{
+		{
+			name: "All feature flags features",
+			tracing: &FeatureFlagTracing{
+				UsesCustomFilter:     true,
+				UsesTimeWindowFilter: true,
+				UsesTargetingFilter:  true,
+				UsesTelemetry:        true,
+				UsesSeed:             true,
+				MaxVariants:          3,
+			},
+			expected: []string{
+				FeatureFilterTypeKey + "=" + CustomFilterKey + DelimiterPlus + TimeWindowFilterKey + DelimiterPlus + TargetingFilterKey,
+				FFFeaturesKey + "=" + FFSeedUsedTag + DelimiterPlus + FFTelemetryUsedTag,
+				FFMaxVariantsKey + "=3",
+			},
+			notExpected: []string{},
+		},
+		{
+			name: "No feature flags features",
+			tracing: &FeatureFlagTracing{
+				UsesCustomFilter:     false,
+				UsesTimeWindowFilter: false,
+				UsesTargetingFilter:  false,
+				UsesTelemetry:        false,
+				UsesSeed:             false,
+				MaxVariants:          0,
+			},
+			expected: []string{},
+			notExpected: []string{
+				FeatureFilterTypeKey,
+				FFFeaturesKey,
+				FFMaxVariantsKey,
+			},
+		},
+		{
+			name: "Only feature filters",
+			tracing: &FeatureFlagTracing{
+				UsesCustomFilter:     true,
+				UsesTimeWindowFilter: false,
+				UsesTargetingFilter:  true,
+				UsesTelemetry:        false,
+				UsesSeed:             false,
+				MaxVariants:          0,
+			},
+			expected: []string{
+				FeatureFilterTypeKey + "=" + CustomFilterKey + DelimiterPlus + TargetingFilterKey,
+			},
+			notExpected: []string{
+				FFFeaturesKey,
+				TimeWindowFilterKey,
+			},
+		},
+		{
+			name: "Only variant count",
+			tracing: &FeatureFlagTracing{
+				UsesCustomFilter:     false,
+				UsesTimeWindowFilter: false,
+				UsesTargetingFilter:  false,
+				UsesTelemetry:        false,
+				UsesSeed:             false,
+				MaxVariants:          5,
+			},
+			expected: []string{
+				FFMaxVariantsKey + "=5",
+			},
+			notExpected: []string{
+				FeatureFilterTypeKey,
+				FFFeaturesKey,
+			},
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			ctx := context.Background()
+			options := Options{
+				FeatureFlagTracing: test.tracing,
+			}
+
+			header := CreateCorrelationContextHeader(ctx, options)
+			correlationCtx := header.Get(CorrelationContextHeader)
+
+			// Check expected strings
+			for _, exp := range test.expected {
+				assert.Contains(t, correlationCtx, exp)
+			}
+
+			// Check not expected strings
+			for _, notExp := range test.notExpected {
+				assert.NotContains(t, correlationCtx, notExp)
+			}
+		})
+	}
+}
