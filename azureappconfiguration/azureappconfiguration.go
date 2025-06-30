@@ -130,7 +130,7 @@ func Load(ctx context.Context, authentication AuthenticationOptions, options *Op
 		if options.FeatureFlagOptions.RefreshOptions.Enabled {
 			azappcfg.ffRefreshTimer = refresh.NewTimer(options.FeatureFlagOptions.RefreshOptions.Interval)
 			azappcfg.ffETags = make(map[Selector][]*azcore.ETag)
-		} 
+		}
 	}
 
 	if err := azappcfg.load(ctx); err != nil {
@@ -434,7 +434,7 @@ func (azappcfg *AzureAppConfiguration) loadKeyVaultSecrets(ctx context.Context, 
 		return secrets, fmt.Errorf("failed to resolve Key Vault references: %w", err)
 	}
 
-	resolvedSecrets.Range(func(key, value interface{}) bool {
+	resolvedSecrets.Range(func(key, value any) bool {
 		secrets[key.(string)] = value.(string)
 		return true
 	})
@@ -451,11 +451,12 @@ func (azappcfg *AzureAppConfiguration) loadFeatureFlags(ctx context.Context, set
 	dedupFeatureFlags := make(map[string]any, len(settingsResponse.settings))
 	for _, setting := range settingsResponse.settings {
 		if setting.Key != nil {
-			var v any
+			var v map[string]any
 			if err := json.Unmarshal([]byte(*setting.Value), &v); err != nil {
 				log.Printf("Invalid feature flag setting: key=%s, error=%s, just ignore", *setting.Key, err.Error())
 				continue
 			}
+			azappcfg.updateFeatureFlagTracing(v)
 			dedupFeatureFlags[*setting.Key] = v
 		}
 	}
@@ -685,6 +686,10 @@ func configureTracingOptions(options *Options) tracing.Options {
 		tracingOption.KeyVaultConfigured = true
 	}
 
+	if options.FeatureFlagOptions.Enabled {
+		tracingOption.FeatureFlagTracing = &tracing.FeatureFlagTracing{}
+	}
+
 	return tracingOption
 }
 
@@ -746,5 +751,43 @@ func (azappcfg *AzureAppConfiguration) newFeatureFlagRefreshClient() refreshClie
 			tracingOptions: azappcfg.tracingOptions,
 			pageETags:      azappcfg.ffETags,
 		},
+	}
+}
+
+func (azappcfg *AzureAppConfiguration) updateFeatureFlagTracing(featureFlag map[string]any) {
+	if azappcfg.tracingOptions.FeatureFlagTracing == nil {
+		return
+	}
+
+	// Check for client filters and update filter tracing
+	if conditions, ok := featureFlag[conditionsKeyName].(map[string]any); ok {
+		if clientFilters, ok := conditions[clientFiltersKeyName].([]any); ok {
+			for _, filter := range clientFilters {
+				if filterMap, ok := filter.(map[string]any); ok {
+					if filterName, ok := filterMap[nameKey].(string); ok {
+						azappcfg.tracingOptions.FeatureFlagTracing.UpdateFeatureFilterTracing(filterName)
+					}
+				}
+			}
+		}
+	}
+
+	// Update max variants count
+	if variants, ok := featureFlag[variantsKeyName].([]any); ok {
+		azappcfg.tracingOptions.FeatureFlagTracing.UpdateMaxVariants(len(variants))
+	}
+
+	// Check if telemetry is enabled
+	if telemetry, ok := featureFlag[telemetryKey].(map[string]any); ok {
+		if enabled, ok := telemetry[enabledKey].(bool); ok && enabled {
+			azappcfg.tracingOptions.FeatureFlagTracing.UsesTelemetry = true
+		}
+	}
+
+	// Check if allocation has a seed
+	if allocation, ok := featureFlag[allocationKeyName].(map[string]any); ok {
+		if _, hasSeed := allocation[seedKeyName]; hasSeed {
+			azappcfg.tracingOptions.FeatureFlagTracing.UsesSeed = true
+		}
 	}
 }
