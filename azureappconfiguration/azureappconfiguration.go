@@ -224,8 +224,8 @@ func (azappcfg *AzureAppConfiguration) GetBytes(options *ConstructionOptions) ([
 // Returns:
 //   - An error if refresh is not configured, or if the refresh operation fails
 func (azappcfg *AzureAppConfiguration) Refresh(ctx context.Context) error {
-	if azappcfg.kvRefreshTimer == nil && azappcfg.secretRefreshTimer == nil {
-		return fmt.Errorf("refresh is not enabled for either key values or Key Vault secrets")
+	if azappcfg.kvRefreshTimer == nil && azappcfg.secretRefreshTimer == nil && azappcfg.ffRefreshTimer == nil {
+		return fmt.Errorf("refresh is not configured for key values, Key Vault secrets, or feature flags")
 	}
 
 	// Try to set refreshInProgress to true, returning false if it was already true
