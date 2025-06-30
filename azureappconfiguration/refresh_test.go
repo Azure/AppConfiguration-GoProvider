@@ -58,7 +58,7 @@ func TestRefresh_NotConfigured(t *testing.T) {
 
 	// Verify that an error is returned
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "refresh is not enabled for either key values or Key Vault secrets")
+	assert.Contains(t, err.Error(), "refresh is not configured")
 }
 
 func TestRefreshEnabled_IntervalTooShort(t *testing.T) {
