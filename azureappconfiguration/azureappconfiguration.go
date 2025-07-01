@@ -36,20 +36,25 @@ import (
 // An AzureAppConfiguration is a configuration provider that stores and manages settings sourced from Azure App Configuration.
 type AzureAppConfiguration struct {
 	// Settings loaded from Azure App Configuration
-	keyValues map[string]any
+	keyValues    map[string]any
+	featureFlags map[string]any
 
 	// Settings configured from Options
 	kvSelectors     []Selector
+	ffEnabled       bool
+	ffSelectors     []Selector
 	trimPrefixes    []string
 	watchedSettings []WatchedSetting
 
 	// Settings used for refresh scenarios
 	sentinelETags      map[WatchedSetting]*azcore.ETag
 	watchAll           bool
-	pageETags          map[Selector][]*azcore.ETag
+	kvETags            map[Selector][]*azcore.ETag
+	ffETags            map[Selector][]*azcore.ETag
 	keyVaultRefs       map[string]string // unversioned Key Vault references
 	kvRefreshTimer     refresh.Condition
 	secretRefreshTimer refresh.Condition
+	ffRefreshTimer     refresh.Condition
 	onRefreshSuccess   []func()
 	tracingOptions     tracing.Options
 
@@ -92,7 +97,10 @@ func Load(ctx context.Context, authentication AuthenticationOptions, options *Op
 	azappcfg := new(AzureAppConfiguration)
 	azappcfg.tracingOptions = configureTracingOptions(options)
 	azappcfg.keyValues = make(map[string]any)
+	azappcfg.featureFlags = make(map[string]any)
 	azappcfg.kvSelectors = deduplicateSelectors(options.Selectors)
+	azappcfg.ffEnabled = options.FeatureFlagOptions.Enabled
+
 	azappcfg.trimPrefixes = options.TrimKeyPrefixes
 	azappcfg.clientManager = clientManager
 	azappcfg.resolver = &keyVaultReferenceResolver{
@@ -105,7 +113,7 @@ func Load(ctx context.Context, authentication AuthenticationOptions, options *Op
 		azappcfg.kvRefreshTimer = refresh.NewTimer(options.RefreshOptions.Interval)
 		azappcfg.watchedSettings = normalizedWatchedSettings(options.RefreshOptions.WatchedSettings)
 		azappcfg.sentinelETags = make(map[WatchedSetting]*azcore.ETag)
-		azappcfg.pageETags = make(map[Selector][]*azcore.ETag)
+		azappcfg.kvETags = make(map[Selector][]*azcore.ETag)
 		if len(options.RefreshOptions.WatchedSettings) == 0 {
 			azappcfg.watchAll = true
 		}
@@ -115,6 +123,14 @@ func Load(ctx context.Context, authentication AuthenticationOptions, options *Op
 		azappcfg.secretRefreshTimer = refresh.NewTimer(options.KeyVaultOptions.RefreshOptions.Interval)
 		azappcfg.keyVaultRefs = make(map[string]string)
 		azappcfg.tracingOptions.KeyVaultRefreshConfigured = true
+	}
+
+	if azappcfg.ffEnabled {
+		azappcfg.ffSelectors = getFeatureFlagSelectors(deduplicateSelectors(options.FeatureFlagOptions.Selectors))
+		if options.FeatureFlagOptions.RefreshOptions.Enabled {
+			azappcfg.ffRefreshTimer = refresh.NewTimer(options.FeatureFlagOptions.RefreshOptions.Interval)
+			azappcfg.ffETags = make(map[Selector][]*azcore.ETag)
+		}
 	}
 
 	if err := azappcfg.load(ctx); err != nil {
@@ -208,8 +224,8 @@ func (azappcfg *AzureAppConfiguration) GetBytes(options *ConstructionOptions) ([
 // Returns:
 //   - An error if refresh is not configured, or if the refresh operation fails
 func (azappcfg *AzureAppConfiguration) Refresh(ctx context.Context) error {
-	if azappcfg.kvRefreshTimer == nil && azappcfg.secretRefreshTimer == nil {
-		return fmt.Errorf("refresh is not enabled for either key values or Key Vault secrets")
+	if azappcfg.kvRefreshTimer == nil && azappcfg.secretRefreshTimer == nil && azappcfg.ffRefreshTimer == nil {
+		return fmt.Errorf("refresh is not configured for key values, Key Vault secrets, or feature flags")
 	}
 
 	// Try to set refreshInProgress to true, returning false if it was already true
@@ -236,8 +252,13 @@ func (azappcfg *AzureAppConfiguration) Refresh(ctx context.Context) error {
 		}
 	}
 
+	featureFlagRefreshed, err := azappcfg.refreshFeatureFlags(ctx, azappcfg.newFeatureFlagRefreshClient())
+	if err != nil {
+		return fmt.Errorf("failed to refresh feature flags: %w", err)
+	}
+
 	// Only execute callbacks if actual changes were applied
-	if keyValueRefreshed || secretRefreshed {
+	if keyValueRefreshed || secretRefreshed || featureFlagRefreshed {
 		for _, callback := range azappcfg.onRefreshSuccess {
 			if callback != nil {
 				callback()
@@ -284,6 +305,17 @@ func (azappcfg *AzureAppConfiguration) load(ctx context.Context) error {
 				tracingOptions:  azappcfg.tracingOptions,
 			}
 			return azappcfg.loadWatchedSettings(egCtx, watchedClient)
+		})
+	}
+
+	if azappcfg.ffEnabled {
+		eg.Go(func() error {
+			ffClient := &selectorSettingsClient{
+				selectors:      azappcfg.ffSelectors,
+				client:         azappcfg.clientManager.staticClient.client,
+				tracingOptions: azappcfg.tracingOptions,
+			}
+			return azappcfg.loadFeatureFlags(egCtx, ffClient)
 		})
 	}
 
@@ -369,7 +401,7 @@ func (azappcfg *AzureAppConfiguration) loadKeyValues(ctx context.Context, settin
 	maps.Copy(kvSettings, secrets)
 	azappcfg.keyValues = kvSettings
 	azappcfg.keyVaultRefs = getUnversionedKeyVaultRefs(keyVaultRefs)
-	azappcfg.pageETags = settingsResponse.pageETags
+	azappcfg.kvETags = settingsResponse.pageETags
 
 	return nil
 }
@@ -402,12 +434,49 @@ func (azappcfg *AzureAppConfiguration) loadKeyVaultSecrets(ctx context.Context, 
 		return secrets, fmt.Errorf("failed to resolve Key Vault references: %w", err)
 	}
 
-	resolvedSecrets.Range(func(key, value interface{}) bool {
+	resolvedSecrets.Range(func(key, value any) bool {
 		secrets[key.(string)] = value.(string)
 		return true
 	})
 
 	return secrets, nil
+}
+
+func (azappcfg *AzureAppConfiguration) loadFeatureFlags(ctx context.Context, settingsClient settingsClient) error {
+	settingsResponse, err := settingsClient.getSettings(ctx)
+	if err != nil {
+		return err
+	}
+
+	dedupFeatureFlags := make(map[string]any, len(settingsResponse.settings))
+	for _, setting := range settingsResponse.settings {
+		if setting.Key != nil {
+			var v map[string]any
+			if err := json.Unmarshal([]byte(*setting.Value), &v); err != nil {
+				log.Printf("Invalid feature flag setting: key=%s, error=%s, just ignore", *setting.Key, err.Error())
+				continue
+			}
+			azappcfg.updateFeatureFlagTracing(v)
+			dedupFeatureFlags[*setting.Key] = v
+		}
+	}
+
+	featureFlags := make([]any, 0, len(dedupFeatureFlags))
+	for _, v := range dedupFeatureFlags {
+		featureFlags = append(featureFlags, v)
+	}
+
+	// "feature_management": {"feature_flags": [{...}, {...}]}
+	ffSettings := map[string]any{
+		featureManagementSectionKey: map[string]any{
+			featureFlagSectionKey: featureFlags,
+		},
+	}
+
+	azappcfg.ffETags = settingsResponse.pageETags
+	azappcfg.featureFlags = ffSettings
+
+	return nil
 }
 
 // refreshKeyValues checks if any watched settings have changed and reloads configuration if needed
@@ -492,6 +561,42 @@ func (azappcfg *AzureAppConfiguration) refreshKeyVaultSecrets(ctx context.Contex
 	return changed, nil
 }
 
+func (azappcfg *AzureAppConfiguration) refreshFeatureFlags(ctx context.Context, refreshClient refreshClient) (bool, error) {
+	if azappcfg.ffRefreshTimer == nil ||
+		!azappcfg.ffRefreshTimer.ShouldRefresh() {
+		// Timer not expired, no need to refresh
+		return false, nil
+	}
+
+	// Check if any ETags have changed
+	eTagChanged, err := refreshClient.monitor.checkIfETagChanged(ctx)
+	if err != nil {
+		return false, fmt.Errorf("failed to check if feature flag settings have changed: %w", err)
+	}
+
+	if !eTagChanged {
+		// No changes detected, reset timer and return
+		azappcfg.ffRefreshTimer.Reset()
+		return false, nil
+	}
+
+	// Reload feature flags
+	eg, egCtx := errgroup.WithContext(ctx)
+	eg.Go(func() error {
+		settingsClient := refreshClient.loader
+		return azappcfg.loadFeatureFlags(egCtx, settingsClient)
+	})
+
+	if err := eg.Wait(); err != nil {
+		// Don't reset the timer if reload failed
+		return false, fmt.Errorf("failed to reload feature flag configuration: %w", err)
+	}
+
+	// Reset the timer only after successful refresh
+	azappcfg.ffRefreshTimer.Reset()
+	return true, nil
+}
+
 func (azappcfg *AzureAppConfiguration) trimPrefix(key string) string {
 	result := key
 	for _, prefix := range azappcfg.trimPrefixes {
@@ -539,6 +644,14 @@ func deduplicateSelectors(selectors []Selector) []Selector {
 	return result
 }
 
+func getFeatureFlagSelectors(selectors []Selector) []Selector {
+	for i := range selectors {
+		selectors[i].KeyFilter = featureFlagKeyPrefix + selectors[i].KeyFilter
+	}
+
+	return selectors
+}
+
 // constructHierarchicalMap converts a flat map with delimited keys to a hierarchical structure
 func (azappcfg *AzureAppConfiguration) constructHierarchicalMap(separator string) map[string]any {
 	tree := &tree.Tree{}
@@ -546,7 +659,12 @@ func (azappcfg *AzureAppConfiguration) constructHierarchicalMap(separator string
 		tree.Insert(strings.Split(k, separator), v)
 	}
 
-	return tree.Build()
+	constructedMap := tree.Build()
+	if azappcfg.ffEnabled {
+		maps.Copy(constructedMap, azappcfg.featureFlags)
+	}
+
+	return constructedMap
 }
 
 func configureTracingOptions(options *Options) tracing.Options {
@@ -566,6 +684,10 @@ func configureTracingOptions(options *Options) tracing.Options {
 
 	if !(options.KeyVaultOptions.SecretResolver == nil && options.KeyVaultOptions.Credential == nil) {
 		tracingOption.KeyVaultConfigured = true
+	}
+
+	if options.FeatureFlagOptions.Enabled {
+		tracingOption.FeatureFlagTracing = &tracing.FeatureFlagTracing{}
 	}
 
 	return tracingOption
@@ -592,7 +714,7 @@ func (azappcfg *AzureAppConfiguration) newKeyValueRefreshClient() refreshClient 
 		monitor = &pageETagsClient{
 			client:         azappcfg.clientManager.staticClient.client,
 			tracingOptions: azappcfg.tracingOptions,
-			pageETags:      azappcfg.pageETags,
+			pageETags:      azappcfg.kvETags,
 		}
 	} else {
 		monitor = &watchedSettingClient{
@@ -614,5 +736,58 @@ func (azappcfg *AzureAppConfiguration) newKeyValueRefreshClient() refreshClient 
 			client:          azappcfg.clientManager.staticClient.client,
 			tracingOptions:  azappcfg.tracingOptions,
 		},
+	}
+}
+
+func (azappcfg *AzureAppConfiguration) newFeatureFlagRefreshClient() refreshClient {
+	return refreshClient{
+		loader: &selectorSettingsClient{
+			selectors:      azappcfg.ffSelectors,
+			client:         azappcfg.clientManager.staticClient.client,
+			tracingOptions: azappcfg.tracingOptions,
+		},
+		monitor: &pageETagsClient{
+			client:         azappcfg.clientManager.staticClient.client,
+			tracingOptions: azappcfg.tracingOptions,
+			pageETags:      azappcfg.ffETags,
+		},
+	}
+}
+
+func (azappcfg *AzureAppConfiguration) updateFeatureFlagTracing(featureFlag map[string]any) {
+	if azappcfg.tracingOptions.FeatureFlagTracing == nil {
+		return
+	}
+
+	// Check for client filters and update filter tracing
+	if conditions, ok := featureFlag[conditionsKeyName].(map[string]any); ok {
+		if clientFilters, ok := conditions[clientFiltersKeyName].([]any); ok {
+			for _, filter := range clientFilters {
+				if filterMap, ok := filter.(map[string]any); ok {
+					if filterName, ok := filterMap[nameKey].(string); ok {
+						azappcfg.tracingOptions.FeatureFlagTracing.UpdateFeatureFilterTracing(filterName)
+					}
+				}
+			}
+		}
+	}
+
+	// Update max variants count
+	if variants, ok := featureFlag[variantsKeyName].([]any); ok {
+		azappcfg.tracingOptions.FeatureFlagTracing.UpdateMaxVariants(len(variants))
+	}
+
+	// Check if telemetry is enabled
+	if telemetry, ok := featureFlag[telemetryKey].(map[string]any); ok {
+		if enabled, ok := telemetry[enabledKey].(bool); ok && enabled {
+			azappcfg.tracingOptions.FeatureFlagTracing.UsesTelemetry = true
+		}
+	}
+
+	// Check if allocation has a seed
+	if allocation, ok := featureFlag[allocationKeyName].(map[string]any); ok {
+		if _, hasSeed := allocation[seedKeyName]; hasSeed {
+			azappcfg.tracingOptions.FeatureFlagTracing.UsesSeed = true
+		}
 	}
 }

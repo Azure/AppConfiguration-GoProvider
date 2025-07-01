@@ -58,7 +58,7 @@ func TestRefresh_NotConfigured(t *testing.T) {
 
 	// Verify that an error is returned
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "refresh is not enabled for either key values or Key Vault secrets")
+	assert.Contains(t, err.Error(), "refresh is not configured")
 }
 
 func TestRefreshEnabled_IntervalTooShort(t *testing.T) {
@@ -643,4 +643,139 @@ func TestRefreshKeyValues_NoChanges_WatchAll(t *testing.T) {
 	assert.Equal(t, 1, mockMonitor.checkCallCount, "Monitor should be called exactly once")
 	assert.Equal(t, 0, mockLoader.getCallCount, "Loader should not be called when no changes")
 	assert.True(t, mockTimer.resetCalled, "Timer should be reset even when no changes")
+}
+
+// TestRefreshFeatureFlags_NoChanges tests when no ETags change is detected for feature flags
+func TestRefreshFeatureFlags_NoChanges(t *testing.T) {
+	// Setup mocks
+	mockTimer := &mockRefreshCondition{shouldRefresh: true}
+	mockMonitor := &mockETagsClient{changed: false}
+	mockLoader := &mockKvRefreshClient{}
+
+	mockClient := refreshClient{
+		loader:  mockLoader,
+		monitor: mockMonitor,
+	}
+
+	// Setup provider with feature flags refresh timer
+	azappcfg := &AzureAppConfiguration{
+		ffRefreshTimer: mockTimer,
+	}
+
+	// Call refreshFeatureFlags
+	refreshed, err := azappcfg.refreshFeatureFlags(context.Background(), mockClient)
+
+	// Verify results
+	assert.NoError(t, err)
+	assert.False(t, refreshed, "Should return false when no changes detected")
+	assert.Equal(t, 1, mockMonitor.checkCallCount, "Monitor should be called exactly once")
+	assert.Equal(t, 0, mockLoader.getCallCount, "Loader should not be called when no changes")
+	assert.True(t, mockTimer.resetCalled, "Timer should be reset even when no changes")
+}
+
+// TestRefreshFeatureFlags_ChangesDetected tests when ETags changed and reload succeeds
+func TestRefreshFeatureFlags_ChangesDetected(t *testing.T) {
+	// Setup mocks for successful refresh
+	mockTimer := &mockRefreshCondition{shouldRefresh: true}
+	mockMonitor := &mockETagsClient{changed: true}
+
+	// Create mock feature flag values
+	value1 := `{
+		"id": "Beta",
+		"description": "",
+		"enabled": false,
+		"conditions": {
+			"client_filters": []
+		}
+	}`
+
+	mockSettings := []azappconfig.Setting{
+		{Key: toPtr(".appconfig.featureflag/Beta"), Value: &value1, ContentType: toPtr(featureFlagContentType)},
+	}
+
+	mockLoader := &mockKvRefreshClient{settings: mockSettings}
+
+	mockClient := refreshClient{
+		loader:  mockLoader,
+		monitor: mockMonitor,
+	}
+
+	// Setup provider with feature flags refresh timer
+	azappcfg := &AzureAppConfiguration{
+		ffRefreshTimer: mockTimer,
+		featureFlags:   make(map[string]any),
+	}
+
+	// Call refreshFeatureFlags
+	refreshed, err := azappcfg.refreshFeatureFlags(context.Background(), mockClient)
+
+	// Verify results
+	assert.NoError(t, err)
+	assert.True(t, refreshed, "Should return true when changes detected and applied")
+	assert.Equal(t, 1, mockMonitor.checkCallCount, "Monitor should be called exactly once")
+	assert.Equal(t, 1, mockLoader.getCallCount, "Loader should be called when changes detected")
+	assert.True(t, mockTimer.resetCalled, "Timer should be reset after successful refresh")
+
+	// Verify the feature flags structure was created correctly
+	assert.Contains(t, azappcfg.featureFlags, featureManagementSectionKey)
+	featureManagement, ok := azappcfg.featureFlags[featureManagementSectionKey].(map[string]any)
+	assert.True(t, ok, "feature_management should be a map")
+	assert.Contains(t, featureManagement, featureFlagSectionKey)
+}
+
+// TestRefreshFeatureFlags_TimerNotExpired tests when the refresh timer hasn't expired yet
+func TestRefreshFeatureFlags_TimerNotExpired(t *testing.T) {
+	// Setup mocks with non-expired timer
+	mockTimer := &mockRefreshCondition{shouldRefresh: false}
+	mockMonitor := &mockETagsClient{}
+	mockLoader := &mockKvRefreshClient{}
+
+	mockClient := refreshClient{
+		loader:  mockLoader,
+		monitor: mockMonitor,
+	}
+
+	// Setup provider
+	azappcfg := &AzureAppConfiguration{
+		ffRefreshTimer: mockTimer,
+	}
+
+	// Call refreshFeatureFlags
+	refreshed, err := azappcfg.refreshFeatureFlags(context.Background(), mockClient)
+
+	// Verify results
+	assert.NoError(t, err)
+	assert.False(t, refreshed, "Should return false when timer hasn't expired")
+	assert.Equal(t, 0, mockMonitor.checkCallCount, "Monitor should not be called when timer hasn't expired")
+	assert.Equal(t, 0, mockLoader.getCallCount, "Loader should not be called when timer hasn't expired")
+	assert.False(t, mockTimer.resetCalled, "Timer should not be reset when it hasn't expired")
+}
+
+// TestRefreshFeatureFlags_LoaderError tests when loader client returns an error
+func TestRefreshFeatureFlags_LoaderError(t *testing.T) {
+	// Setup mocks with loader error
+	mockTimer := &mockRefreshCondition{shouldRefresh: true}
+	mockMonitor := &mockETagsClient{changed: true}
+	mockLoader := &mockKvRefreshClient{err: fmt.Errorf("feature flag loader error")}
+
+	mockClient := refreshClient{
+		loader:  mockLoader,
+		monitor: mockMonitor,
+	}
+
+	// Setup provider
+	azappcfg := &AzureAppConfiguration{
+		ffRefreshTimer: mockTimer,
+	}
+
+	// Call refreshFeatureFlags
+	refreshed, err := azappcfg.refreshFeatureFlags(context.Background(), mockClient)
+
+	// Verify results
+	assert.Error(t, err)
+	assert.False(t, refreshed, "Should return false when error occurs")
+	assert.Contains(t, err.Error(), "feature flag loader error")
+	assert.Equal(t, 1, mockMonitor.checkCallCount, "Monitor should be called exactly once")
+	assert.Equal(t, 1, mockLoader.getCallCount, "Loader should be called when changes detected")
+	assert.False(t, mockTimer.resetCalled, "Timer should not be reset when error occurs")
 }
