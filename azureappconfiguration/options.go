@@ -30,6 +30,9 @@ type Options struct {
 	// KeyVaultOptions configures how Key Vault references are resolved.
 	KeyVaultOptions KeyVaultOptions
 
+	// FeatureFlagOptions contains optional parameters for Azure App Configuration feature flags.
+	FeatureFlagOptions FeatureFlagOptions
+
 	// ClientOptions provides options for configuring the underlying Azure App Configuration client.
 	ClientOptions *azappconfig.ClientOptions
 }
@@ -108,6 +111,20 @@ type KeyVaultOptions struct {
 
 	// RefreshOptions specifies the behavior of Key Vault secrets refresh.
 	// Sets the refresh interval for periodically reloading secrets from Key Vault, must be greater than 1 minute.
+	RefreshOptions RefreshOptions
+}
+
+// FeatureFlagOptions contains optional parameters for Azure App Configuration feature flags that will be parsed and transformed into feature management configuration.
+type FeatureFlagOptions struct {
+	// Enabled specifies whether feature flags will be loaded from Azure App Configuration.
+	Enabled bool
+
+	// If no selectors are provided, all feature flags with no label will be loaded when enabled feature flags.
+	Selectors []Selector
+
+	// RefreshOptions specifies the behavior of feature flags refresh.
+	// Refresh interval must be greater than 1 second. If not provided, the default interval 30 seconds will be used
+	// All loaded feature flags will be automatically watched when feature flags refresh is enabled.
 	RefreshOptions RefreshOptions
 }
 
