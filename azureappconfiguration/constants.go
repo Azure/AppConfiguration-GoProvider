@@ -56,16 +56,16 @@ const (
 
 // Failover constants
 const (
-	tcpKey                                 string        = "tcp"
-	originKey                              string        = "origin"
-	altKey                                 string        = "alt"
-	azConfigDomainLabel                   string        = ".azconfig."
-	appConfigDomainLabel                  string        = ".appconfig."
-	fallbackClientRefreshExpireInterval   time.Duration = time.Hour
-	minimalClientRefreshInterval          time.Duration = time.Second * 30
-	maxBackoffDuration                    time.Duration = time.Minute * 10
-	minBackoffDuration                    time.Duration = time.Second * 30
-	failoverTimeout                       time.Duration = time.Second * 5
-	jitterRatio                           float64       = 0.25
-	safeShiftLimit                        int           = 63
+	tcpKey                              string        = "tcp"
+	originKey                           string        = "origin"
+	altKey                              string        = "alt"
+	azConfigDomainLabel                 string        = ".azconfig."
+	appConfigDomainLabel                string        = ".appconfig."
+	fallbackClientRefreshExpireInterval time.Duration = time.Hour
+	minimalClientRefreshInterval        time.Duration = time.Second * 30
+	maxBackoffDuration                  time.Duration = time.Minute * 10
+	minBackoffDuration                  time.Duration = time.Second * 30
+	failoverTimeout                     time.Duration = time.Second * 5
+	jitterRatio                         float64       = 0.25
+	safeShiftLimit                      int           = 63
 )

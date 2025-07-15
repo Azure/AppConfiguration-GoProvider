@@ -22,25 +22,30 @@ import (
 
 // configurationClientManager handles creation and management of app configuration clients
 type configurationClientManager struct {
-	replicaDiscoveryEnabled bool
-	clientOptions *azappconfig.ClientOptions
-	staticClient  *configurationClientWrapper
-	dynamicClients []*configurationClientWrapper
-	endpoint      string
-	validDomain   string
-	credential    azcore.TokenCredential
-	secret        string
-	id            string
+	replicaDiscoveryEnabled   bool
+	clientOptions             *azappconfig.ClientOptions
+	staticClient              *configurationClientWrapper
+	dynamicClients            []*configurationClientWrapper
+	endpoint                  string
+	validDomain               string
+	credential                azcore.TokenCredential
+	secret                    string
+	id                        string
 	lastFallbackClientAttempt time.Time
 	lastFallbackClientRefresh time.Time
 }
 
 // configurationClientWrapper wraps an Azure App Configuration client with additional metadata
 type configurationClientWrapper struct {
-	endpoint string
-	client   *azappconfig.Client
+	endpoint       string
+	client         *azappconfig.Client
 	backOffEndTime time.Time
 	failedAttempts int
+}
+
+type clientManager interface {
+	getClients(ctx context.Context) ([]*configurationClientWrapper, error)
+	refreshClients(ctx context.Context)
 }
 
 // newConfigurationClientManager creates a new configuration client manager
@@ -149,7 +154,7 @@ func (manager *configurationClientManager) discoverFallbackClients(ctx context.C
 		log.Printf("failed to discover fallback clients for %s: %v", host, err)
 		return
 	}
-	
+
 	manager.processSrvTargetHosts(srvTargetHosts)
 }
 
@@ -166,13 +171,13 @@ func (manager *configurationClientManager) processSrvTargetHosts(srvTargetHosts 
 			if strings.EqualFold(targetEndpoint, manager.endpoint) {
 				continue // Skip primary endpoint
 			}
-			
+
 			client, err := manager.newConfigurationClient(targetEndpoint)
 			if err != nil {
 				log.Printf("failed to create client for replica %s: %v", targetEndpoint, err)
 				continue // Continue with other replicas instead of returning
 			}
-			
+
 			newDynamicClients = append(newDynamicClients, &configurationClientWrapper{
 				endpoint: targetEndpoint,
 				client:   client,
@@ -318,7 +323,7 @@ func isValidEndpoint(host string, validDomain string) bool {
 func (client *configurationClientWrapper) updateBackoffStatus(success bool) {
 	if success {
 		client.failedAttempts = 0
-		client.backOffEndTime = time.Time{} 
+		client.backOffEndTime = time.Time{}
 	} else {
 		client.failedAttempts++
 		client.backOffEndTime = time.Now().Add(client.getBackoffDuration())
@@ -333,7 +338,7 @@ func (client *configurationClientWrapper) getBackoffDuration() time.Duration {
 	// Cap the exponent to prevent overflow
 	exponent := math.Min(float64(client.failedAttempts-1), float64(safeShiftLimit))
 	calculatedMilliseconds := float64(minBackoffDuration.Milliseconds()) * math.Pow(2, exponent)
-	
+
 	if calculatedMilliseconds > float64(maxBackoffDuration.Milliseconds()) || calculatedMilliseconds <= 0 {
 		calculatedMilliseconds = float64(maxBackoffDuration.Milliseconds())
 	}

@@ -62,7 +62,7 @@ type AzureAppConfiguration struct {
 	tracingOptions     tracing.Options
 
 	// Clients talking to Azure App Configuration/Azure Key Vault service
-	clientManager *configurationClientManager
+	clientManager clientManager
 	resolver      *keyVaultReferenceResolver
 
 	refreshInProgress atomic.Bool
@@ -864,6 +864,8 @@ func isFailoverable(err error) bool {
 		switch respErr.StatusCode {
 		case http.StatusTooManyRequests, // 429
 			http.StatusRequestTimeout,     // 408
+			http.StatusForbidden,          // 403
+			http.StatusUnauthorized,       // 401
 			http.StatusBadGateway,         // 502
 			http.StatusServiceUnavailable, // 503
 			http.StatusGatewayTimeout:     // 504
