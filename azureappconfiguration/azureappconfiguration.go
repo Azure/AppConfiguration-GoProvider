@@ -632,11 +632,13 @@ func (azappcfg *AzureAppConfiguration) executeFailoverPolicy(ctx context.Context
 	}
 
 	errors := make([]error, 0, len(clients))
+	azappcfg.tracingOptions.IsFailoverRequest = false
 	for _, clientWrapper := range clients {
 		if err := operation(clientWrapper.client); err != nil {
 			if isFailoverable(err) {
 				clientWrapper.updateBackoffStatus(false)
 				errors = append(errors, fmt.Errorf("failed to get settings with client of %s: %w", clientWrapper.endpoint, err))
+				azappcfg.tracingOptions.IsFailoverRequest = true
 				continue
 			}
 
