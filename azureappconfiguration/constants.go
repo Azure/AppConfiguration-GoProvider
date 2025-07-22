@@ -65,7 +65,7 @@ const (
 	minimalClientRefreshInterval        time.Duration = time.Second * 30
 	maxBackoffDuration                  time.Duration = time.Minute * 10
 	minBackoffDuration                  time.Duration = time.Second * 30
-	failoverTimeout                     time.Duration = time.Second * 5
+	failoverTimeout                     time.Duration = time.Second * 10
 	jitterRatio                         float64       = 0.25
 	safeShiftLimit                      int           = 63
 )

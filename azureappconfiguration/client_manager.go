@@ -149,7 +149,10 @@ func (manager *configurationClientManager) refreshClients(ctx context.Context) {
 }
 
 func (manager *configurationClientManager) discoverFallbackClients(ctx context.Context, host string) {
-	srvTargetHosts, err := querySrvTargetHost(ctx, host)
+	newCtx, cancel := context.WithTimeout(ctx, failoverTimeout)
+	defer cancel()
+
+	srvTargetHosts, err := querySrvTargetHost(newCtx, host)
 	if err != nil {
 		log.Printf("failed to discover fallback clients for %s: %v", host, err)
 		return
