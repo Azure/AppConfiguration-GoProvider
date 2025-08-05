@@ -24,6 +24,7 @@ import (
 	"sync"
 	"sync/atomic"
 
+	"github.com/Azure/AppConfiguration-GoProvider/azureappconfiguration/internal/jsonc"
 	"github.com/Azure/AppConfiguration-GoProvider/azureappconfiguration/internal/refresh"
 	"github.com/Azure/AppConfiguration-GoProvider/azureappconfiguration/internal/tracing"
 	"github.com/Azure/AppConfiguration-GoProvider/azureappconfiguration/internal/tree"
@@ -373,7 +374,7 @@ func (azappcfg *AzureAppConfiguration) loadKeyValues(ctx context.Context, settin
 		default:
 			if isJsonContentType(setting.ContentType) {
 				var v any
-				if err := json.Unmarshal([]byte(*setting.Value), &v); err != nil {
+				if err := json.Unmarshal(jsonc.StripComments([]byte(*setting.Value)), &v); err != nil {
 					log.Printf("Failed to unmarshal JSON value: key=%s, error=%s", *setting.Key, err.Error())
 					continue
 				}
