@@ -374,9 +374,14 @@ func (azappcfg *AzureAppConfiguration) loadKeyValues(ctx context.Context, settin
 		default:
 			if isJsonContentType(setting.ContentType) {
 				var v any
-				if err := json.Unmarshal(jsonc.StripComments([]byte(*setting.Value)), &v); err != nil {
-					log.Printf("Failed to unmarshal JSON value: key=%s, error=%s", *setting.Key, err.Error())
-					continue
+				if err := json.Unmarshal([]byte(*setting.Value), &v); err != nil {
+					// If the value is not valid JSON, try to remove comments and parse again
+					if err := json.Unmarshal(jsonc.StripComments([]byte(*setting.Value)), &v); err != nil {
+						// If still invalid, log the error and treat it as a plain string
+						log.Printf("Failed to unmarshal JSON value: key=%s, error=%s", *setting.Key, err.Error())
+						kvSettings[trimmedKey] = setting.Value
+						continue
+					}
 				}
 				kvSettings[trimmedKey] = v
 				if isAIConfigurationContentType(setting.ContentType) {

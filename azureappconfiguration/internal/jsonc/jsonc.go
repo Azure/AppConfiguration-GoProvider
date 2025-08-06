@@ -65,7 +65,7 @@ func StripComments(data []byte) []byte {
 
 			// Find closing */ and replace content with spaces, preserving newlines
 			for i < len(data) {
-				if i+1 < len(data) && data[i] == '*' && data[i+1] == '/' {
+				if data[i] == '*' && i+1 < len(data) && data[i+1] == '/' {
 					// Replace */ with spaces
 					result = append(result, ' ', ' ')
 					i += 2 // skip */
