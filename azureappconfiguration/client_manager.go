@@ -13,7 +13,6 @@ import (
 	"net/url"
 	"strconv"
 	"strings"
-	"sync/atomic"
 	"time"
 
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore"
@@ -26,7 +25,7 @@ type configurationClientManager struct {
 	replicaDiscoveryEnabled   bool
 	clientOptions             *azappconfig.ClientOptions
 	staticClient              *configurationClientWrapper
-	dynamicClients            atomic.Pointer[[]*configurationClientWrapper] // atomic pointer to slice
+	dynamicClients            []*configurationClientWrapper
 	endpoint                  string
 	validDomain               string
 	credential                azcore.TokenCredential
@@ -34,9 +33,6 @@ type configurationClientManager struct {
 	id                        string
 	lastFallbackClientAttempt time.Time
 	lastFallbackClientRefresh time.Time
-
-	// discoveryInProgress prevents concurrent replica discovery operations
-	discoveryInProgress atomic.Bool
 }
 
 // configurationClientWrapper wraps an Azure App Configuration client with additional metadata
@@ -114,12 +110,7 @@ func (manager *configurationClientManager) initializeClient(authOptions Authenti
 
 func (manager *configurationClientManager) getClients(ctx context.Context) ([]*configurationClientWrapper, error) {
 	currentTime := time.Now()
-	dynamicClients := manager.dynamicClients.Load() // atomic read
-	clientsCapacity := 1
-	if dynamicClients != nil {
-		clientsCapacity += len(*dynamicClients)
-	}
-	clients := make([]*configurationClientWrapper, 0, clientsCapacity)
+	clients := make([]*configurationClientWrapper, 0, 1+len(manager.dynamicClients))
 
 	// Add the static client if it is not in backoff
 	if currentTime.After(manager.staticClient.backOffEndTime) {
@@ -131,18 +122,16 @@ func (manager *configurationClientManager) getClients(ctx context.Context) ([]*c
 	}
 
 	if currentTime.After(manager.lastFallbackClientAttempt.Add(minimalClientRefreshInterval)) &&
-		(dynamicClients == nil ||
+		(manager.dynamicClients == nil ||
 			currentTime.After(manager.lastFallbackClientRefresh.Add(fallbackClientRefreshExpireInterval))) {
 		manager.lastFallbackClientAttempt = currentTime
 		url, _ := url.Parse(manager.endpoint)
 		manager.discoverFallbackClients(url.Host)
 	}
 
-	if dynamicClients != nil {
-		for _, clientWrapper := range *dynamicClients {
-			if currentTime.After(clientWrapper.backOffEndTime) {
-				clients = append(clients, clientWrapper)
-			}
+	for _, clientWrapper := range manager.dynamicClients {
+		if currentTime.After(clientWrapper.backOffEndTime) {
+			clients = append(clients, clientWrapper)
 		}
 	}
 
@@ -160,13 +149,6 @@ func (manager *configurationClientManager) refreshClients(ctx context.Context) {
 }
 
 func (manager *configurationClientManager) discoverFallbackClients(host string) {
-	if !manager.discoveryInProgress.CompareAndSwap(false, true) {
-		return // Another discovery is already in progress
-	}
-
-	// Reset the flag when we're done
-	defer manager.discoveryInProgress.Store(false)
-
 	go func() {
 		defer func() {
 			if r := recover(); r != nil {
@@ -214,7 +196,7 @@ func (manager *configurationClientManager) processSrvTargetHosts(srvTargetHosts 
 		}
 	}
 
-	manager.dynamicClients.Store(&newDynamicClients) // atomic write
+	manager.dynamicClients = newDynamicClients
 	manager.lastFallbackClientRefresh = time.Now()
 }
 
