@@ -5,11 +5,6 @@
 // This package extends standard JSON support to handle line comments (//) and block comments (/* */).
 package jsonc
 
-import (
-	"bytes"
-	"encoding/json"
-)
-
 // StripComments removes comments from JSONC while preserving string literals.
 func StripComments(data []byte) []byte {
 	var result []byte
@@ -90,16 +85,4 @@ func StripComments(data []byte) []byte {
 	}
 
 	return result
-}
-
-// Standardize converts JSONC to standard JSON by removing all comments.
-func Standardize(data []byte) ([]byte, error) {
-	cleaned := StripComments(data)
-	// Compact the JSON to remove extra whitespace
-	var compacted bytes.Buffer
-	if err := json.Compact(&compacted, cleaned); err != nil {
-		return data, err
-	}
-
-	return compacted.Bytes(), nil
 }

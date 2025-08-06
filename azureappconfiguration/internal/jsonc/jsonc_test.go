@@ -4,82 +4,8 @@
 package jsonc
 
 import (
-	"encoding/json"
 	"testing"
 )
-
-func TestStandardize(t *testing.T) {
-	tests := []struct {
-		name     string
-		input    string
-		expected string
-		wantErr  bool
-	}{
-		{
-			name:     "JSON with line comments",
-			input:    `{"name": "value"} // comment`,
-			expected: `{"name":"value"}`,
-			wantErr:  false,
-		},
-		{
-			name:     "JSON with block comments",
-			input:    `{"name": /* comment */ "value"}`,
-			expected: `{"name":"value"}`,
-			wantErr:  false,
-		},
-		{
-			name: "JSON with mixed comments and formatting",
-			input: `{
-				// Configuration
-				"database": {
-					"host": "localhost", /* Local dev */
-					"port": 5432
-				}
-			}`,
-			expected: `{"database":{"host":"localhost","port":5432}}`,
-			wantErr:  false,
-		},
-		{
-			name:    "invalid JSON",
-			input:   `{"name": }`,
-			wantErr: true,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			result, err := Standardize([]byte(tt.input))
-
-			if tt.wantErr {
-				if err == nil {
-					t.Errorf("Standardize() expected error, got nil")
-				}
-				return
-			}
-
-			if err != nil {
-				t.Errorf("Standardize() error = %v", err)
-				return
-			}
-
-			// Validate that the expected result is valid JSON
-			if !tt.wantErr && !json.Valid([]byte(tt.expected)) {
-				t.Errorf("Test case has invalid expected JSON: %s", tt.expected)
-				return
-			}
-
-			// Validate that the actual result is valid JSON
-			if !json.Valid(result) {
-				t.Errorf("Standardize() produced invalid JSON: %s", string(result))
-				return
-			}
-
-			if string(result) != tt.expected {
-				t.Errorf("Standardize() = %s, want %s", string(result), tt.expected)
-			}
-		})
-	}
-}
 
 func TestStripComments(t *testing.T) {
 	tests := []struct {
