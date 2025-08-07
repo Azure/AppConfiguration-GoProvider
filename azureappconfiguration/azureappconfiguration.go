@@ -512,7 +512,8 @@ func (azappcfg *AzureAppConfiguration) refreshKeyValues(ctx context.Context, ref
 	// Check if any ETags have changed
 	eTagChanged, err := refreshClient.monitor.checkIfETagChanged(ctx)
 	if err != nil {
-		return false, fmt.Errorf("failed to check if key value settings have changed: %w", err)
+		log.Printf("Failed to check if key value settings have changed: %s", err.Error())
+		return false, err
 	}
 
 	if !eTagChanged {
