@@ -340,6 +340,292 @@ func TestIsFailoverable(t *testing.T) {
 	}
 }
 
+// Test executeFailoverPolicy with load balancing enabled - should rotate clients
+func TestExecuteFailoverPolicy_LoadBalancing_RotateClients(t *testing.T) {
+	mockClientManager := new(mockClientManager)
+
+	client1 := &azappconfig.Client{}
+	client2 := &azappconfig.Client{}
+	client3 := &azappconfig.Client{}
+
+	clientWrappers := []*configurationClientWrapper{
+		{endpoint: "https://primary.azconfig.io", client: client1, failedAttempts: 0},
+		{endpoint: "https://replica1.azconfig.io", client: client2, failedAttempts: 0},
+		{endpoint: "https://replica2.azconfig.io", client: client3, failedAttempts: 0},
+	}
+
+	mockClientManager.On("getClients", mock.Anything).Return(clientWrappers, nil)
+
+	azappcfg := &AzureAppConfiguration{
+		clientManager:          mockClientManager,
+		loadBalancingEnabled:   true,
+		lastSuccessfulEndpoint: "https://primary.azconfig.io", // Last successful was the first client
+	}
+
+	var usedClient *azappconfig.Client
+	operation := func(client *azappconfig.Client) error {
+		usedClient = client
+		return nil // Success
+	}
+
+	err := azappcfg.executeFailoverPolicy(context.Background(), operation)
+
+	assert.NoError(t, err)
+	// After rotation, the second client (replica1) should be used first
+	assert.Equal(t, client2, usedClient, "Should use the next client after rotation")
+	assert.Equal(t, "https://replica1.azconfig.io", azappcfg.lastSuccessfulEndpoint, "Should update last successful endpoint")
+	mockClientManager.AssertExpectations(t)
+}
+
+// Test executeFailoverPolicy with load balancing enabled - last client was successful
+func TestExecuteFailoverPolicy_LoadBalancing_LastClientSuccessful(t *testing.T) {
+	mockClientManager := new(mockClientManager)
+
+	client1 := &azappconfig.Client{}
+	client2 := &azappconfig.Client{}
+	client3 := &azappconfig.Client{}
+
+	clientWrappers := []*configurationClientWrapper{
+		{endpoint: "https://primary.azconfig.io", client: client1, failedAttempts: 0},
+		{endpoint: "https://replica1.azconfig.io", client: client2, failedAttempts: 0},
+		{endpoint: "https://replica2.azconfig.io", client: client3, failedAttempts: 0},
+	}
+
+	mockClientManager.On("getClients", mock.Anything).Return(clientWrappers, nil)
+
+	azappcfg := &AzureAppConfiguration{
+		clientManager:          mockClientManager,
+		loadBalancingEnabled:   true,
+		lastSuccessfulEndpoint: "https://replica2.azconfig.io", // Last successful was the last client
+	}
+
+	var usedClient *azappconfig.Client
+	operation := func(client *azappconfig.Client) error {
+		usedClient = client
+		return nil // Success
+	}
+
+	err := azappcfg.executeFailoverPolicy(context.Background(), operation)
+
+	assert.NoError(t, err)
+	// After rotation, should wrap around to the first client
+	assert.Equal(t, client1, usedClient, "Should wrap around to the first client")
+	assert.Equal(t, "https://primary.azconfig.io", azappcfg.lastSuccessfulEndpoint, "Should update last successful endpoint")
+	mockClientManager.AssertExpectations(t)
+}
+
+// Test executeFailoverPolicy with load balancing disabled - should not rotate
+func TestExecuteFailoverPolicy_LoadBalancing_Disabled(t *testing.T) {
+	mockClientManager := new(mockClientManager)
+
+	client1 := &azappconfig.Client{}
+	client2 := &azappconfig.Client{}
+
+	clientWrappers := []*configurationClientWrapper{
+		{endpoint: "https://primary.azconfig.io", client: client1, failedAttempts: 0},
+		{endpoint: "https://replica.azconfig.io", client: client2, failedAttempts: 0},
+	}
+
+	mockClientManager.On("getClients", mock.Anything).Return(clientWrappers, nil)
+
+	azappcfg := &AzureAppConfiguration{
+		clientManager:          mockClientManager,
+		loadBalancingEnabled:   false, // Load balancing disabled
+		lastSuccessfulEndpoint: "https://primary.azconfig.io",
+	}
+
+	var usedClient *azappconfig.Client
+	operation := func(client *azappconfig.Client) error {
+		usedClient = client
+		return nil // Success
+	}
+
+	err := azappcfg.executeFailoverPolicy(context.Background(), operation)
+
+	assert.NoError(t, err)
+	// Should use the first client (no rotation)
+	assert.Equal(t, client1, usedClient, "Should use the first client when load balancing is disabled")
+	// lastSuccessfulEndpoint should not be updated when load balancing is disabled
+	assert.Equal(t, "https://primary.azconfig.io", azappcfg.lastSuccessfulEndpoint)
+	mockClientManager.AssertExpectations(t)
+}
+
+// Test executeFailoverPolicy with load balancing - single client
+func TestExecuteFailoverPolicy_LoadBalancing_SingleClient(t *testing.T) {
+	mockClientManager := new(mockClientManager)
+
+	client1 := &azappconfig.Client{}
+
+	clientWrappers := []*configurationClientWrapper{
+		{endpoint: "https://primary.azconfig.io", client: client1, failedAttempts: 0},
+	}
+
+	mockClientManager.On("getClients", mock.Anything).Return(clientWrappers, nil)
+
+	azappcfg := &AzureAppConfiguration{
+		clientManager:          mockClientManager,
+		loadBalancingEnabled:   true,
+		lastSuccessfulEndpoint: "https://primary.azconfig.io",
+	}
+
+	var usedClient *azappconfig.Client
+	operation := func(client *azappconfig.Client) error {
+		usedClient = client
+		return nil // Success
+	}
+
+	err := azappcfg.executeFailoverPolicy(context.Background(), operation)
+
+	assert.NoError(t, err)
+	// Should use the only client available
+	assert.Equal(t, client1, usedClient, "Should use the only available client")
+	assert.Equal(t, "https://primary.azconfig.io", azappcfg.lastSuccessfulEndpoint, "Should update last successful endpoint")
+	mockClientManager.AssertExpectations(t)
+}
+
+// Test rotateClientsToNextEndpoint function directly
+func TestRotateClientsToNextEndpoint(t *testing.T) {
+	client1 := &azappconfig.Client{}
+	client2 := &azappconfig.Client{}
+	client3 := &azappconfig.Client{}
+
+	tests := []struct {
+		name                   string
+		clients                []*configurationClientWrapper
+		lastSuccessfulEndpoint string
+		expectedFirstClient    string
+	}{
+		{
+			name: "rotate from first to second",
+			clients: []*configurationClientWrapper{
+				{endpoint: "https://primary.azconfig.io", client: client1},
+				{endpoint: "https://replica1.azconfig.io", client: client2},
+				{endpoint: "https://replica2.azconfig.io", client: client3},
+			},
+			lastSuccessfulEndpoint: "https://primary.azconfig.io",
+			expectedFirstClient:    "https://replica1.azconfig.io",
+		},
+		{
+			name: "rotate from middle to next",
+			clients: []*configurationClientWrapper{
+				{endpoint: "https://primary.azconfig.io", client: client1},
+				{endpoint: "https://replica1.azconfig.io", client: client2},
+				{endpoint: "https://replica2.azconfig.io", client: client3},
+			},
+			lastSuccessfulEndpoint: "https://replica1.azconfig.io",
+			expectedFirstClient:    "https://replica2.azconfig.io",
+		},
+		{
+			name: "rotate from last to first (wrap around)",
+			clients: []*configurationClientWrapper{
+				{endpoint: "https://primary.azconfig.io", client: client1},
+				{endpoint: "https://replica1.azconfig.io", client: client2},
+				{endpoint: "https://replica2.azconfig.io", client: client3},
+			},
+			lastSuccessfulEndpoint: "https://replica2.azconfig.io",
+			expectedFirstClient:    "https://primary.azconfig.io",
+		},
+		{
+			name: "single client - no rotation",
+			clients: []*configurationClientWrapper{
+				{endpoint: "https://primary.azconfig.io", client: client1},
+			},
+			lastSuccessfulEndpoint: "https://primary.azconfig.io",
+			expectedFirstClient:    "https://primary.azconfig.io",
+		},
+		{
+			name:                   "empty clients - no panic",
+			clients:                []*configurationClientWrapper{},
+			lastSuccessfulEndpoint: "https://primary.azconfig.io",
+			expectedFirstClient:    "", // No clients, so no first client
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// Make a copy to avoid modifying the original slice
+			clientsCopy := make([]*configurationClientWrapper, len(tt.clients))
+			copy(clientsCopy, tt.clients)
+
+			rotateClientsToNextEndpoint(clientsCopy, tt.lastSuccessfulEndpoint)
+
+			if len(clientsCopy) > 0 {
+				assert.Equal(t, tt.expectedFirstClient, clientsCopy[0].endpoint, "First client after rotation should match expected")
+			}
+		})
+	}
+}
+
+// Test rotateSliceInPlace function directly
+func TestRotateSliceInPlace(t *testing.T) {
+	tests := []struct {
+		name     string
+		input    []int
+		k        int
+		expected []int
+	}{
+		{
+			name:     "rotate by 1",
+			input:    []int{1, 2, 3, 4, 5},
+			k:        1,
+			expected: []int{2, 3, 4, 5, 1},
+		},
+		{
+			name:     "rotate by 2",
+			input:    []int{1, 2, 3, 4, 5},
+			k:        2,
+			expected: []int{3, 4, 5, 1, 2},
+		},
+		{
+			name:     "rotate by length (no change)",
+			input:    []int{1, 2, 3, 4, 5},
+			k:        5,
+			expected: []int{1, 2, 3, 4, 5},
+		},
+		{
+			name:     "rotate by more than length",
+			input:    []int{1, 2, 3, 4, 5},
+			k:        7, // 7 % 5 = 2
+			expected: []int{3, 4, 5, 1, 2},
+		},
+		{
+			name:     "rotate by 0",
+			input:    []int{1, 2, 3, 4, 5},
+			k:        0,
+			expected: []int{1, 2, 3, 4, 5},
+		},
+		{
+			name:     "single element",
+			input:    []int{1},
+			k:        1,
+			expected: []int{1},
+		},
+		{
+			name:     "two elements rotate by 1",
+			input:    []int{1, 2},
+			k:        1,
+			expected: []int{2, 1},
+		},
+		{
+			name:     "empty slice",
+			input:    []int{},
+			k:        1,
+			expected: []int{},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// Make a copy to avoid modifying the original slice
+			inputCopy := make([]int, len(tt.input))
+			copy(inputCopy, tt.input)
+
+			rotateSliceInPlace(inputCopy, tt.k)
+			assert.Equal(t, tt.expected, inputCopy, "Rotated slice should match expected result")
+		})
+	}
+}
+
 // Test client wrapper backoff behavior
 func TestClientWrapper_UpdateBackoffStatus(t *testing.T) {
 	client := &configurationClientWrapper{

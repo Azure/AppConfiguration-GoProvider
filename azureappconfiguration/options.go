@@ -39,6 +39,10 @@ type Options struct {
 	// ReplicaDiscoveryEnabled specifies whether to enable replica discovery for the Azure App Configuration service.
 	// It defaults to true, which allows the provider to discover and use replicas for improved availability.
 	ReplicaDiscoveryEnabled *bool
+
+	// LoadBalancingEnabled specifies whether to enable load balancing across multiple replicas of the Azure App Configuration service.
+	// It defaults to false.
+	LoadBalancingEnabled bool
 }
 
 // AuthenticationOptions contains parameters for authenticating with the Azure App Configuration service.

@@ -43,23 +43,25 @@ type AzureAppConfiguration struct {
 	featureFlags map[string]any
 
 	// Settings configured from Options
-	kvSelectors     []Selector
-	ffEnabled       bool
-	ffSelectors     []Selector
-	trimPrefixes    []string
-	watchedSettings []WatchedSetting
+	kvSelectors          []Selector
+	ffEnabled            bool
+	ffSelectors          []Selector
+	trimPrefixes         []string
+	watchedSettings      []WatchedSetting
+	loadBalancingEnabled bool
 
 	// Settings used for refresh scenarios
-	sentinelETags      map[WatchedSetting]*azcore.ETag
-	watchAll           bool
-	kvETags            map[Selector][]*azcore.ETag
-	ffETags            map[Selector][]*azcore.ETag
-	keyVaultRefs       map[string]string // unversioned Key Vault references
-	kvRefreshTimer     refresh.Condition
-	secretRefreshTimer refresh.Condition
-	ffRefreshTimer     refresh.Condition
-	onRefreshSuccess   []func()
-	tracingOptions     tracing.Options
+	sentinelETags          map[WatchedSetting]*azcore.ETag
+	watchAll               bool
+	kvETags                map[Selector][]*azcore.ETag
+	ffETags                map[Selector][]*azcore.ETag
+	keyVaultRefs           map[string]string // unversioned Key Vault references
+	kvRefreshTimer         refresh.Condition
+	secretRefreshTimer     refresh.Condition
+	ffRefreshTimer         refresh.Condition
+	onRefreshSuccess       []func()
+	tracingOptions         tracing.Options
+	lastSuccessfulEndpoint string
 
 	// Clients talking to Azure App Configuration/Azure Key Vault service
 	clientManager clientManager
@@ -103,6 +105,7 @@ func Load(ctx context.Context, authentication AuthenticationOptions, options *Op
 	azappcfg.featureFlags = make(map[string]any)
 	azappcfg.kvSelectors = deduplicateSelectors(options.Selectors)
 	azappcfg.ffEnabled = options.FeatureFlagOptions.Enabled
+	azappcfg.loadBalancingEnabled = options.LoadBalancingEnabled
 
 	azappcfg.trimPrefixes = options.TrimKeyPrefixes
 	azappcfg.clientManager = clientManager
@@ -631,6 +634,10 @@ func (azappcfg *AzureAppConfiguration) executeFailoverPolicy(ctx context.Context
 		azappcfg.clientManager.refreshClients(ctx)
 		return fmt.Errorf("no client is available to connect to the target App Configuration store")
 	}
+	// If load balancing is enabled, rotate the clients so that the next client to be used is not the last successful one
+	if azappcfg.loadBalancingEnabled && azappcfg.lastSuccessfulEndpoint != "" && len(clients) > 1 {
+		rotateClientsToNextEndpoint(clients, azappcfg.lastSuccessfulEndpoint)
+	}
 
 	if manager, ok := azappcfg.clientManager.(*configurationClientManager); ok {
 		azappcfg.tracingOptions.ReplicaCount = len(manager.dynamicClients)
@@ -651,6 +658,10 @@ func (azappcfg *AzureAppConfiguration) executeFailoverPolicy(ctx context.Context
 		}
 
 		clientWrapper.updateBackoffStatus(true)
+		// Update the last successful endpoint for load balancing
+		if azappcfg.loadBalancingEnabled {
+			azappcfg.lastSuccessfulEndpoint = clientWrapper.endpoint
+		}
 		return nil
 	}
 
@@ -746,6 +757,10 @@ func configureTracingOptions(options *Options) tracing.Options {
 
 	if !(options.KeyVaultOptions.SecretResolver == nil && options.KeyVaultOptions.Credential == nil) {
 		tracingOption.KeyVaultConfigured = true
+	}
+
+	if options.LoadBalancingEnabled {
+		tracingOption.IsLoadBalancingEnabled = true
 	}
 
 	if options.FeatureFlagOptions.Enabled {
@@ -851,6 +866,56 @@ func (azappcfg *AzureAppConfiguration) updateFeatureFlagTracing(featureFlag map[
 		if _, hasSeed := allocation[seedKeyName]; hasSeed {
 			azappcfg.tracingOptions.FeatureFlagTracing.UsesSeed = true
 		}
+	}
+}
+
+func rotateClientsToNextEndpoint(clients []*configurationClientWrapper, lastSuccessfulEndpoint string) {
+	if len(clients) <= 1 {
+		return
+	}
+
+	// Find the index of the last successful endpoint
+	lastSuccessfulIndex := -1
+	for i, clientWrapper := range clients {
+		if clientWrapper.endpoint == lastSuccessfulEndpoint {
+			lastSuccessfulIndex = i
+			break
+		}
+	}
+
+	// If we found the last successful endpoint, rotate to the next one
+	if lastSuccessfulIndex >= 0 {
+		nextClientIndex := (lastSuccessfulIndex + 1) % len(clients)
+		if nextClientIndex > 0 {
+			rotateSliceInPlace(clients, nextClientIndex)
+		}
+	}
+}
+
+// rotateSliceInPlace rotates a slice left by k positions using the reverse-reverse algorithm.
+func rotateSliceInPlace[T any](slice []T, k int) {
+	if len(slice) <= 1 {
+		return
+	}
+
+	k = k % len(slice)
+	if k == 0 {
+		return
+	}
+
+	// Reverse the entire slice
+	for i, j := 0, len(slice)-1; i < j; i, j = i+1, j-1 {
+		slice[i], slice[j] = slice[j], slice[i]
+	}
+
+	// Reverse the first len(slice)-k elements
+	for i, j := 0, len(slice)-k-1; i < j; i, j = i+1, j-1 {
+		slice[i], slice[j] = slice[j], slice[i]
+	}
+
+	// Reverse the remaining elements
+	for i, j := len(slice)-k, len(slice)-1; i < j; i, j = i+1, j-1 {
+		slice[i], slice[j] = slice[j], slice[i]
 	}
 }
 
