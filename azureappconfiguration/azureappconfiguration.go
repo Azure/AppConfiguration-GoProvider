@@ -632,6 +632,10 @@ func (azappcfg *AzureAppConfiguration) executeFailoverPolicy(ctx context.Context
 		return fmt.Errorf("no client is available to connect to the target App Configuration store")
 	}
 
+	if manager, ok := azappcfg.clientManager.(*configurationClientManager); ok {
+		azappcfg.tracingOptions.ReplicaCount = len(manager.dynamicClients)
+	}
+
 	errors := make([]error, 0, len(clients))
 	azappcfg.tracingOptions.IsFailoverRequest = false
 	for _, clientWrapper := range clients {
