@@ -42,6 +42,7 @@ const (
 	AIChatCompletionConfigurationTag = "AICC"
 	FailoverRequestTag               = "Failover"
 	ReplicaCountKey                  = "ReplicaCount"
+	LoadBalancingEnabledTag          = "LB"
 
 	// Feature flag usage tracing
 	FeatureFilterTypeKey = "Filter"
@@ -73,6 +74,7 @@ type Options struct {
 	UseAIChatCompletionConfiguration bool
 	IsFailoverRequest                bool
 	ReplicaCount                     int
+	IsLoadBalancingEnabled           bool
 	FeatureFlagTracing               *FeatureFlagTracing
 }
 
@@ -128,6 +130,10 @@ func CreateCorrelationContextHeader(ctx context.Context, options Options) http.H
 
 	if options.UseAIChatCompletionConfiguration {
 		features = append(features, AIChatCompletionConfigurationTag)
+	}
+
+	if options.IsLoadBalancingEnabled {
+		features = append(features, LoadBalancingEnabledTag)
 	}
 
 	if len(features) > 0 {

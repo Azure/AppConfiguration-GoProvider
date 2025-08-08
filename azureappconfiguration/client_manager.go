@@ -182,13 +182,11 @@ func (manager *configurationClientManager) processSrvTargetHosts(srvTargetHosts 
 			if strings.EqualFold(targetEndpoint, manager.endpoint) {
 				continue // Skip primary endpoint
 			}
-
 			client, err := manager.newConfigurationClient(targetEndpoint)
 			if err != nil {
 				log.Printf("failed to create client for replica %s: %v", targetEndpoint, err)
 				continue // Continue with other replicas instead of returning
 			}
-
 			newDynamicClients = append(newDynamicClients, &configurationClientWrapper{
 				endpoint: targetEndpoint,
 				client:   client,
@@ -349,7 +347,6 @@ func (client *configurationClientWrapper) getBackoffDuration() time.Duration {
 	// Cap the exponent to prevent overflow
 	exponent := math.Min(float64(client.failedAttempts-1), float64(safeShiftLimit))
 	calculatedMilliseconds := float64(minBackoffDuration.Milliseconds()) * math.Pow(2, exponent)
-
 	if calculatedMilliseconds > float64(maxBackoffDuration.Milliseconds()) || calculatedMilliseconds <= 0 {
 		calculatedMilliseconds = float64(maxBackoffDuration.Milliseconds())
 	}
