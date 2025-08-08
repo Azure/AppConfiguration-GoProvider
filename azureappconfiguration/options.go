@@ -35,6 +35,10 @@ type Options struct {
 
 	// ClientOptions provides options for configuring the underlying Azure App Configuration client.
 	ClientOptions *azappconfig.ClientOptions
+
+	// ReplicaDiscoveryEnabled specifies whether to enable replica discovery for the Azure App Configuration service.
+	// It defaults to true, which allows the provider to discover and use replicas for improved availability.
+	ReplicaDiscoveryEnabled *bool
 }
 
 // AuthenticationOptions contains parameters for authenticating with the Azure App Configuration service.

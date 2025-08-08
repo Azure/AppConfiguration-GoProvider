@@ -40,6 +40,8 @@ const (
 	FeaturesKey                      = "Features"
 	AIConfigurationTag               = "AI"
 	AIChatCompletionConfigurationTag = "AICC"
+	FailoverRequestTag               = "Failover"
+	ReplicaCountKey                  = "ReplicaCount"
 
 	// Feature flag usage tracing
 	FeatureFilterTypeKey = "Filter"
@@ -69,6 +71,8 @@ type Options struct {
 	KeyVaultRefreshConfigured        bool
 	UseAIConfiguration               bool
 	UseAIChatCompletionConfiguration bool
+	IsFailoverRequest                bool
+	ReplicaCount                     int
 	FeatureFlagTracing               *FeatureFlagTracing
 }
 
@@ -101,12 +105,20 @@ func CreateCorrelationContextHeader(ctx context.Context, options Options) http.H
 		output = append(output, HostTypeKey+"="+string(options.Host))
 	}
 
+	if options.ReplicaCount > 0 {
+		output = append(output, ReplicaCountKey+"="+strconv.Itoa(options.ReplicaCount))
+	}
+
 	if options.KeyVaultConfigured {
 		output = append(output, KeyVaultConfiguredTag)
 	}
 
 	if options.KeyVaultRefreshConfigured {
 		output = append(output, KeyVaultRefreshConfiguredTag)
+	}
+
+	if options.IsFailoverRequest {
+		output = append(output, FailoverRequestTag)
 	}
 
 	features := make([]string, 0)
