@@ -5,5 +5,5 @@ package azureappconfiguration
 
 const (
 	moduleName    = "azcfg-go"
-	moduleVersion = "1.1.0"
+	moduleVersion = "1.2.0"
 )
