@@ -15,15 +15,19 @@ package azureappconfiguration
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
 	"maps"
+	"net"
+	"net/http"
 	"os"
 	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
 
+	"github.com/Azure/AppConfiguration-GoProvider/azureappconfiguration/internal/jsonc"
 	"github.com/Azure/AppConfiguration-GoProvider/azureappconfiguration/internal/refresh"
 	"github.com/Azure/AppConfiguration-GoProvider/azureappconfiguration/internal/tracing"
 	"github.com/Azure/AppConfiguration-GoProvider/azureappconfiguration/internal/tree"
@@ -40,26 +44,28 @@ type AzureAppConfiguration struct {
 	featureFlags map[string]any
 
 	// Settings configured from Options
-	kvSelectors     []Selector
-	ffEnabled       bool
-	ffSelectors     []Selector
-	trimPrefixes    []string
-	watchedSettings []WatchedSetting
+	kvSelectors          []Selector
+	ffEnabled            bool
+	ffSelectors          []Selector
+	trimPrefixes         []string
+	watchedSettings      []WatchedSetting
+	loadBalancingEnabled bool
 
 	// Settings used for refresh scenarios
-	sentinelETags      map[WatchedSetting]*azcore.ETag
-	watchAll           bool
-	kvETags            map[Selector][]*azcore.ETag
-	ffETags            map[Selector][]*azcore.ETag
-	keyVaultRefs       map[string]string // unversioned Key Vault references
-	kvRefreshTimer     refresh.Condition
-	secretRefreshTimer refresh.Condition
-	ffRefreshTimer     refresh.Condition
-	onRefreshSuccess   []func()
-	tracingOptions     tracing.Options
+	sentinelETags          map[WatchedSetting]*azcore.ETag
+	watchAll               bool
+	kvETags                map[Selector][]*azcore.ETag
+	ffETags                map[Selector][]*azcore.ETag
+	keyVaultRefs           map[string]string // unversioned Key Vault references
+	kvRefreshTimer         refresh.Condition
+	secretRefreshTimer     refresh.Condition
+	ffRefreshTimer         refresh.Condition
+	onRefreshSuccess       []func()
+	tracingOptions         tracing.Options
+	lastSuccessfulEndpoint string
 
 	// Clients talking to Azure App Configuration/Azure Key Vault service
-	clientManager *configurationClientManager
+	clientManager clientManager
 	resolver      *keyVaultReferenceResolver
 
 	refreshInProgress atomic.Bool
@@ -89,7 +95,7 @@ func Load(ctx context.Context, authentication AuthenticationOptions, options *Op
 		options = &Options{}
 	}
 
-	clientManager, err := newConfigurationClientManager(authentication, options.ClientOptions)
+	clientManager, err := newConfigurationClientManager(authentication, options)
 	if err != nil {
 		return nil, err
 	}
@@ -100,6 +106,7 @@ func Load(ctx context.Context, authentication AuthenticationOptions, options *Op
 	azappcfg.featureFlags = make(map[string]any)
 	azappcfg.kvSelectors = deduplicateSelectors(options.Selectors)
 	azappcfg.ffEnabled = options.FeatureFlagOptions.Enabled
+	azappcfg.loadBalancingEnabled = options.LoadBalancingEnabled
 
 	azappcfg.trimPrefixes = options.TrimKeyPrefixes
 	azappcfg.clientManager = clientManager
@@ -236,9 +243,28 @@ func (azappcfg *AzureAppConfiguration) Refresh(ctx context.Context) error {
 	// Reset the flag when we're done
 	defer azappcfg.refreshInProgress.Store(false)
 
-	// Attempt to refresh and check if any values were actually updated
-	keyValueRefreshed, err := azappcfg.refreshKeyValues(ctx, azappcfg.newKeyValueRefreshClient())
-	if err != nil {
+	var keyValueRefreshed, featureFlagRefreshed bool
+	var err error
+	refreshTask := func(client *azappconfig.Client) error {
+		eg, egCtx := errgroup.WithContext(ctx)
+		eg.Go(func() error {
+			if keyValueRefreshed, err = azappcfg.refreshKeyValues(egCtx, azappcfg.newKeyValueRefreshClient(client)); err != nil {
+				return fmt.Errorf("failed to refresh key values: %w", err)
+			}
+			return nil
+		})
+
+		eg.Go(func() error {
+			if featureFlagRefreshed, err = azappcfg.refreshFeatureFlags(egCtx, azappcfg.newFeatureFlagRefreshClient(client)); err != nil {
+				return fmt.Errorf("failed to refresh feature flags: %w", err)
+			}
+			return nil
+		})
+
+		return eg.Wait()
+	}
+
+	if err := azappcfg.executeFailoverPolicy(ctx, refreshTask); err != nil {
 		return fmt.Errorf("failed to refresh configuration: %w", err)
 	}
 
@@ -250,11 +276,6 @@ func (azappcfg *AzureAppConfiguration) Refresh(ctx context.Context) error {
 		if err != nil {
 			return fmt.Errorf("failed to reload Key Vault secrets: %w", err)
 		}
-	}
-
-	featureFlagRefreshed, err := azappcfg.refreshFeatureFlags(ctx, azappcfg.newFeatureFlagRefreshClient())
-	if err != nil {
-		return fmt.Errorf("failed to refresh feature flags: %w", err)
 	}
 
 	// Only execute callbacks if actual changes were applied
@@ -287,39 +308,43 @@ func (azappcfg *AzureAppConfiguration) OnRefreshSuccess(callback func()) {
 }
 
 func (azappcfg *AzureAppConfiguration) load(ctx context.Context) error {
-	eg, egCtx := errgroup.WithContext(ctx)
-	eg.Go(func() error {
-		keyValuesClient := &selectorSettingsClient{
-			selectors:      azappcfg.kvSelectors,
-			client:         azappcfg.clientManager.staticClient.client,
-			tracingOptions: azappcfg.tracingOptions,
-		}
-		return azappcfg.loadKeyValues(egCtx, keyValuesClient)
-	})
-
-	if azappcfg.kvRefreshTimer != nil && len(azappcfg.watchedSettings) > 0 {
+	loadTask := func(client *azappconfig.Client) error {
+		eg, egCtx := errgroup.WithContext(ctx)
 		eg.Go(func() error {
-			watchedClient := &watchedSettingClient{
-				watchedSettings: azappcfg.watchedSettings,
-				client:          azappcfg.clientManager.staticClient.client,
-				tracingOptions:  azappcfg.tracingOptions,
-			}
-			return azappcfg.loadWatchedSettings(egCtx, watchedClient)
-		})
-	}
-
-	if azappcfg.ffEnabled {
-		eg.Go(func() error {
-			ffClient := &selectorSettingsClient{
-				selectors:      azappcfg.ffSelectors,
-				client:         azappcfg.clientManager.staticClient.client,
+			keyValuesClient := &selectorSettingsClient{
+				selectors:      azappcfg.kvSelectors,
+				client:         client,
 				tracingOptions: azappcfg.tracingOptions,
 			}
-			return azappcfg.loadFeatureFlags(egCtx, ffClient)
+			return azappcfg.loadKeyValues(egCtx, keyValuesClient)
 		})
+
+		if azappcfg.kvRefreshTimer != nil && len(azappcfg.watchedSettings) > 0 {
+			eg.Go(func() error {
+				watchedClient := &watchedSettingClient{
+					watchedSettings: azappcfg.watchedSettings,
+					client:          client,
+					tracingOptions:  azappcfg.tracingOptions,
+				}
+				return azappcfg.loadWatchedSettings(egCtx, watchedClient)
+			})
+		}
+
+		if azappcfg.ffEnabled {
+			eg.Go(func() error {
+				ffClient := &selectorSettingsClient{
+					selectors:      azappcfg.ffSelectors,
+					client:         client,
+					tracingOptions: azappcfg.tracingOptions,
+				}
+				return azappcfg.loadFeatureFlags(egCtx, ffClient)
+			})
+		}
+
+		return eg.Wait()
 	}
 
-	return eg.Wait()
+	return azappcfg.executeFailoverPolicy(ctx, loadTask)
 }
 
 func (azappcfg *AzureAppConfiguration) loadWatchedSettings(ctx context.Context, settingsClient settingsClient) error {
@@ -374,8 +399,13 @@ func (azappcfg *AzureAppConfiguration) loadKeyValues(ctx context.Context, settin
 			if isJsonContentType(setting.ContentType) {
 				var v any
 				if err := json.Unmarshal([]byte(*setting.Value), &v); err != nil {
-					log.Printf("Failed to unmarshal JSON value: key=%s, error=%s", *setting.Key, err.Error())
-					continue
+					// If the value is not valid JSON, try to remove comments and parse again
+					if err := json.Unmarshal(jsonc.StripComments([]byte(*setting.Value)), &v); err != nil {
+						// If still invalid, log the error and treat it as a plain string
+						log.Printf("Failed to unmarshal JSON value: key=%s, error=%s", *setting.Key, err.Error())
+						kvSettings[trimmedKey] = setting.Value
+						continue
+					}
 				}
 				kvSettings[trimmedKey] = v
 				if isAIConfigurationContentType(setting.ContentType) {
@@ -491,7 +521,8 @@ func (azappcfg *AzureAppConfiguration) refreshKeyValues(ctx context.Context, ref
 	// Check if any ETags have changed
 	eTagChanged, err := refreshClient.monitor.checkIfETagChanged(ctx)
 	if err != nil {
-		return false, fmt.Errorf("failed to check if key value settings have changed: %w", err)
+		log.Printf("Failed to check if key value settings have changed: %s", err.Error())
+		return false, err
 	}
 
 	if !eTagChanged {
@@ -571,7 +602,8 @@ func (azappcfg *AzureAppConfiguration) refreshFeatureFlags(ctx context.Context, 
 	// Check if any ETags have changed
 	eTagChanged, err := refreshClient.monitor.checkIfETagChanged(ctx)
 	if err != nil {
-		return false, fmt.Errorf("failed to check if feature flag settings have changed: %w", err)
+		log.Printf("Failed to check if feature flag settings have changed: %s", err.Error())
+		return false, err
 	}
 
 	if !eTagChanged {
@@ -588,13 +620,60 @@ func (azappcfg *AzureAppConfiguration) refreshFeatureFlags(ctx context.Context, 
 	})
 
 	if err := eg.Wait(); err != nil {
+		log.Printf("Failed to reload feature flag configuration: %s", err.Error())
 		// Don't reset the timer if reload failed
-		return false, fmt.Errorf("failed to reload feature flag configuration: %w", err)
+		return false, err
 	}
 
 	// Reset the timer only after successful refresh
 	azappcfg.ffRefreshTimer.Reset()
 	return true, nil
+}
+
+func (azappcfg *AzureAppConfiguration) executeFailoverPolicy(ctx context.Context, operation func(*azappconfig.Client) error) error {
+	clients, err := azappcfg.clientManager.getClients(ctx)
+	if err != nil {
+		return err
+	}
+
+	if len(clients) == 0 {
+		azappcfg.clientManager.refreshClients(ctx)
+		return fmt.Errorf("no client is available to connect to the target App Configuration store")
+	}
+	// If load balancing is enabled, rotate the clients so that the next client to be used is not the last successful one
+	if azappcfg.loadBalancingEnabled && azappcfg.lastSuccessfulEndpoint != "" && len(clients) > 1 {
+		rotateClientsToNextEndpoint(clients, azappcfg.lastSuccessfulEndpoint)
+	}
+
+	if manager, ok := azappcfg.clientManager.(*configurationClientManager); ok {
+		azappcfg.tracingOptions.ReplicaCount = len(manager.dynamicClients)
+	}
+
+	errors := make([]error, 0, len(clients))
+	azappcfg.tracingOptions.IsFailoverRequest = false
+	for _, clientWrapper := range clients {
+		if err := operation(clientWrapper.client); err != nil {
+			if isFailoverable(err) {
+				clientWrapper.updateBackoffStatus(false)
+				errors = append(errors, fmt.Errorf("failed to get settings with client of %s: %w", clientWrapper.endpoint, err))
+				azappcfg.tracingOptions.IsFailoverRequest = true
+				continue
+			}
+
+			return err
+		}
+
+		clientWrapper.updateBackoffStatus(true)
+		// Update the last successful endpoint for load balancing
+		if azappcfg.loadBalancingEnabled {
+			azappcfg.lastSuccessfulEndpoint = clientWrapper.endpoint
+		}
+		return nil
+	}
+
+	// If we reach here, it means all clients failed
+	azappcfg.clientManager.refreshClients(ctx)
+	return fmt.Errorf("failed to get settings from all clients: %v", errors)
 }
 
 func (azappcfg *AzureAppConfiguration) trimPrefix(key string) string {
@@ -686,6 +765,10 @@ func configureTracingOptions(options *Options) tracing.Options {
 		tracingOption.KeyVaultConfigured = true
 	}
 
+	if options.LoadBalancingEnabled {
+		tracingOption.IsLoadBalancingEnabled = true
+	}
+
 	if options.FeatureFlagOptions.Enabled {
 		tracingOption.FeatureFlagTracing = &tracing.FeatureFlagTracing{}
 	}
@@ -708,17 +791,17 @@ func normalizedWatchedSettings(s []WatchedSetting) []WatchedSetting {
 	return result
 }
 
-func (azappcfg *AzureAppConfiguration) newKeyValueRefreshClient() refreshClient {
+func (azappcfg *AzureAppConfiguration) newKeyValueRefreshClient(client *azappconfig.Client) refreshClient {
 	var monitor eTagsClient
 	if azappcfg.watchAll {
 		monitor = &pageETagsClient{
-			client:         azappcfg.clientManager.staticClient.client,
+			client:         client,
 			tracingOptions: azappcfg.tracingOptions,
 			pageETags:      azappcfg.kvETags,
 		}
 	} else {
 		monitor = &watchedSettingClient{
-			client:         azappcfg.clientManager.staticClient.client,
+			client:         client,
 			tracingOptions: azappcfg.tracingOptions,
 			eTags:          azappcfg.sentinelETags,
 		}
@@ -727,27 +810,27 @@ func (azappcfg *AzureAppConfiguration) newKeyValueRefreshClient() refreshClient 
 	return refreshClient{
 		loader: &selectorSettingsClient{
 			selectors:      azappcfg.kvSelectors,
-			client:         azappcfg.clientManager.staticClient.client,
+			client:         client,
 			tracingOptions: azappcfg.tracingOptions,
 		},
 		monitor: monitor,
 		sentinels: &watchedSettingClient{
 			watchedSettings: azappcfg.watchedSettings,
-			client:          azappcfg.clientManager.staticClient.client,
+			client:          client,
 			tracingOptions:  azappcfg.tracingOptions,
 		},
 	}
 }
 
-func (azappcfg *AzureAppConfiguration) newFeatureFlagRefreshClient() refreshClient {
+func (azappcfg *AzureAppConfiguration) newFeatureFlagRefreshClient(client *azappconfig.Client) refreshClient {
 	return refreshClient{
 		loader: &selectorSettingsClient{
 			selectors:      azappcfg.ffSelectors,
-			client:         azappcfg.clientManager.staticClient.client,
+			client:         client,
 			tracingOptions: azappcfg.tracingOptions,
 		},
 		monitor: &pageETagsClient{
-			client:         azappcfg.clientManager.staticClient.client,
+			client:         client,
 			tracingOptions: azappcfg.tracingOptions,
 			pageETags:      azappcfg.ffETags,
 		},
@@ -790,4 +873,86 @@ func (azappcfg *AzureAppConfiguration) updateFeatureFlagTracing(featureFlag map[
 			azappcfg.tracingOptions.FeatureFlagTracing.UsesSeed = true
 		}
 	}
+}
+
+func rotateClientsToNextEndpoint(clients []*configurationClientWrapper, lastSuccessfulEndpoint string) {
+	if len(clients) <= 1 {
+		return
+	}
+
+	// Find the index of the last successful endpoint
+	lastSuccessfulIndex := -1
+	for i, clientWrapper := range clients {
+		if clientWrapper.endpoint == lastSuccessfulEndpoint {
+			lastSuccessfulIndex = i
+			break
+		}
+	}
+
+	// If we found the last successful endpoint, rotate to the next one
+	if lastSuccessfulIndex >= 0 {
+		nextClientIndex := (lastSuccessfulIndex + 1) % len(clients)
+		if nextClientIndex > 0 {
+			rotateSliceInPlace(clients, nextClientIndex)
+		}
+	}
+}
+
+// rotateSliceInPlace rotates a slice left by k positions using the reverse-reverse algorithm.
+func rotateSliceInPlace[T any](slice []T, k int) {
+	if len(slice) <= 1 {
+		return
+	}
+
+	k = k % len(slice)
+	if k == 0 {
+		return
+	}
+
+	// Reverse the entire slice
+	for i, j := 0, len(slice)-1; i < j; i, j = i+1, j-1 {
+		slice[i], slice[j] = slice[j], slice[i]
+	}
+
+	// Reverse the first len(slice)-k elements
+	for i, j := 0, len(slice)-k-1; i < j; i, j = i+1, j-1 {
+		slice[i], slice[j] = slice[j], slice[i]
+	}
+
+	// Reverse the remaining elements
+	for i, j := len(slice)-k, len(slice)-1; i < j; i, j = i+1, j-1 {
+		slice[i], slice[j] = slice[j], slice[i]
+	}
+}
+
+func isFailoverable(err error) bool {
+	if err == nil {
+		return false
+	}
+
+	// Check for network errors (including wrapped ones)
+	var netErr net.Error
+	if errors.As(err, &netErr) {
+		return true
+	}
+
+	// Check for Azure response errors (including wrapped ones)
+	var respErr *azcore.ResponseError
+	if errors.As(err, &respErr) {
+		switch respErr.StatusCode {
+		case http.StatusTooManyRequests, // 429
+			http.StatusRequestTimeout,     // 408
+			http.StatusForbidden,          // 403
+			http.StatusUnauthorized,       // 401
+			http.StatusBadGateway,         // 502
+			http.StatusServiceUnavailable, // 503
+			http.StatusGatewayTimeout:     // 504
+			return true
+		}
+
+		// Any 5xx error should be failoverable
+		return respErr.StatusCode >= 500
+	}
+
+	return false
 }

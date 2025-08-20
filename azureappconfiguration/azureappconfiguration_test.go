@@ -271,11 +271,10 @@ func TestLoadKeyValues_InvalidJson(t *testing.T) {
 	err := azappcfg.loadKeyValues(ctx, mockClient)
 	assert.NoError(t, err)
 
-	assert.Len(t, azappcfg.keyValues, 1)
+	assert.Len(t, azappcfg.keyValues, 2)
 	assert.Equal(t, &value1, azappcfg.keyValues["key1"])
-	// The invalid JSON key should be skipped
-	_, exists := azappcfg.keyValues["key2"]
-	assert.False(t, exists)
+	// The invalid JSON key should be treated as a plain string
+	assert.Equal(t, &value2, azappcfg.keyValues["key2"])
 }
 
 func TestDeduplicateSelectors(t *testing.T) {
