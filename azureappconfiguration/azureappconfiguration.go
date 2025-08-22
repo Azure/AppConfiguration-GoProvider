@@ -486,6 +486,12 @@ func (azappcfg *AzureAppConfiguration) loadFeatureFlags(ctx context.Context, set
 				log.Printf("Invalid feature flag setting: key=%s, error=%s, just ignore", *setting.Key, err.Error())
 				continue
 			}
+
+			if manager, ok := azappcfg.clientManager.(*configurationClientManager); ok {
+				endpoint := manager.endpoint
+				populateTelemetryMetadata(v, setting, endpoint)
+			}
+
 			azappcfg.updateFeatureFlagTracing(v)
 			dedupFeatureFlags[*setting.Key] = v
 		}
@@ -955,4 +961,33 @@ func isFailoverable(err error) bool {
 	}
 
 	return false
+}
+
+func generateFeatureFlagReference(setting azappconfig.Setting, endpoint string) string {
+	featureFlagReference := fmt.Sprintf("%s/kv/%s", endpoint, *setting.Key)
+
+	// Check if the label is present and not empty
+	if setting.Label != nil && strings.TrimSpace(*setting.Label) != "" {
+		featureFlagReference += fmt.Sprintf("?label=%s", *setting.Label)
+	}
+
+	return featureFlagReference
+}
+
+func populateTelemetryMetadata(featureFlag map[string]any, setting azappconfig.Setting, endpoint string) {
+	if telemetry, ok := featureFlag[telemetryKey].(map[string]any); ok {
+		if enabled, ok := telemetry[enabledKey].(bool); ok && enabled {
+			metadata, _ := telemetry[metadataKey].(map[string]any)
+			if metadata == nil {
+				metadata = make(map[string]any)
+			}
+
+			// Set the new metadata
+			if setting.ETag != nil {
+				metadata[eTagKey] = *setting.ETag
+			}
+			metadata[featureFlagReferenceKey] = generateFeatureFlagReference(setting, endpoint)
+			telemetry[metadataKey] = metadata
+		}
+	}
 }

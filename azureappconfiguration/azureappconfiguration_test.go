@@ -1601,3 +1601,267 @@ func TestLoadFeatureFlags_TracingUpdated(t *testing.T) {
 	// Verify max variants is included
 	assert.Contains(t, correlationCtx, tracing.FFMaxVariantsKey+"=3")
 }
+
+func TestLoadFeatureFlags_WithTelemetryEnabled(t *testing.T) {
+	ctx := context.Background()
+	mockClient := new(mockSettingsClient)
+
+	// Feature flag with telemetry enabled
+	value1 := `{
+		"id": "TelemetryFlag",
+		"description": "Feature flag with telemetry",
+		"enabled": true,
+		"telemetry": {
+			"enabled": true
+		}
+	}`
+
+	// Feature flag with telemetry disabled
+	value2 := `{
+		"id": "NoTelemetryFlag",
+		"description": "Feature flag without telemetry",
+		"enabled": false,
+		"telemetry": {
+			"enabled": false
+		}
+	}`
+
+	// Feature flag without telemetry section
+	value3 := `{
+		"id": "BasicFlag",
+		"description": "Basic feature flag",
+		"enabled": true
+	}`
+
+	eTag1 := "W/\"etag-1\""
+	eTag2 := "W/\"etag-2\""
+	eTag3 := "W/\"etag-3\""
+
+	mockResponse := &settingsResponse{
+		settings: []azappconfig.Setting{
+			{
+				Key:         toPtr(".appconfig.featureflag/TelemetryFlag"),
+				Value:       &value1,
+				ContentType: toPtr(featureFlagContentType),
+				ETag:        (*azcore.ETag)(&eTag1),
+				Label:       toPtr("production"),
+			},
+			{
+				Key:         toPtr(".appconfig.featureflag/NoTelemetryFlag"),
+				Value:       &value2,
+				ContentType: toPtr(featureFlagContentType),
+				ETag:        (*azcore.ETag)(&eTag2),
+			},
+			{
+				Key:         toPtr(".appconfig.featureflag/BasicFlag"),
+				Value:       &value3,
+				ContentType: toPtr(featureFlagContentType),
+				ETag:        (*azcore.ETag)(&eTag3),
+			},
+		},
+		pageETags: map[Selector][]*azcore.ETag{},
+	}
+
+	mockClient.On("getSettings", ctx).Return(mockResponse, nil)
+
+	azappcfg := &AzureAppConfiguration{
+		clientManager: &configurationClientManager{
+			staticClient: &configurationClientWrapper{client: &azappconfig.Client{}},
+			endpoint:     "https://mystore.azconfig.io",
+		},
+		ffSelectors:  getFeatureFlagSelectors([]Selector{}),
+		featureFlags: make(map[string]any),
+		tracingOptions: tracing.Options{
+			Enabled:            true,
+			FeatureFlagTracing: &tracing.FeatureFlagTracing{},
+		},
+	}
+
+	err := azappcfg.loadFeatureFlags(ctx, mockClient)
+	assert.NoError(t, err)
+
+	// Verify feature flags structure
+	featureManagement := azappcfg.featureFlags[featureManagementSectionKey].(map[string]any)
+	featureFlags := featureManagement[featureFlagSectionKey].([]any)
+	assert.Len(t, featureFlags, 3)
+
+	// Find and verify TelemetryFlag
+	var telemetryFlag map[string]any
+	var noTelemetryFlag map[string]any
+	var basicFlag map[string]any
+
+	for _, flag := range featureFlags {
+		flagMap := flag.(map[string]any)
+		switch flagMap["id"] {
+		case "TelemetryFlag":
+			telemetryFlag = flagMap
+		case "NoTelemetryFlag":
+			noTelemetryFlag = flagMap
+		case "BasicFlag":
+			basicFlag = flagMap
+		}
+	}
+
+	// Verify TelemetryFlag has telemetry metadata populated
+	assert.NotNil(t, telemetryFlag, "TelemetryFlag should exist")
+	telemetry, ok := telemetryFlag[telemetryKey].(map[string]any)
+	assert.True(t, ok, "TelemetryFlag should have telemetry section")
+	assert.True(t, telemetry[enabledKey].(bool), "Telemetry should be enabled")
+
+	metadata, ok := telemetry[metadataKey].(map[string]any)
+	assert.True(t, ok, "Telemetry should have metadata")
+	assert.Equal(t, "https://mystore.azconfig.io/kv/.appconfig.featureflag/TelemetryFlag?label=production",
+		metadata[featureFlagReferenceKey], "Feature flag reference should be populated with label")
+
+	// Verify NoTelemetryFlag does not have metadata populated
+	assert.NotNil(t, noTelemetryFlag, "NoTelemetryFlag should exist")
+	noTelemetry, ok := noTelemetryFlag[telemetryKey].(map[string]any)
+	assert.True(t, ok, "NoTelemetryFlag should have telemetry section")
+	assert.False(t, noTelemetry[enabledKey].(bool), "Telemetry should be disabled")
+
+	// Should not have metadata since telemetry is disabled
+	_, hasMetadata := noTelemetry[metadataKey]
+	assert.False(t, hasMetadata, "NoTelemetryFlag should not have metadata when telemetry is disabled")
+
+	// Verify BasicFlag does not have telemetry section modified
+	assert.NotNil(t, basicFlag, "BasicFlag should exist")
+	_, hasTelemetry := basicFlag[telemetryKey]
+	assert.False(t, hasTelemetry, "BasicFlag should not have telemetry section")
+
+	// Verify tracing was updated
+	assert.True(t, azappcfg.tracingOptions.FeatureFlagTracing.UsesTelemetry, "Should detect telemetry usage")
+}
+
+func TestLoadFeatureFlags_TelemetryWithExistingMetadata(t *testing.T) {
+	ctx := context.Background()
+	mockClient := new(mockSettingsClient)
+
+	// Feature flag with telemetry enabled and existing metadata
+	value1 := `{
+		"id": "ExistingMetadataFlag",
+		"description": "Feature flag with existing metadata",
+		"enabled": true,
+		"telemetry": {
+			"enabled": true,
+			"metadata": {
+				"customKey": "customValue",
+				"version": "1.0"
+			}
+		}
+	}`
+
+	eTag1 := "W/\"existing-etag\""
+
+	mockResponse := &settingsResponse{
+		settings: []azappconfig.Setting{
+			{
+				Key:         toPtr(".appconfig.featureflag/ExistingMetadataFlag"),
+				Value:       &value1,
+				ContentType: toPtr(featureFlagContentType),
+				ETag:        (*azcore.ETag)(&eTag1),
+			},
+		},
+		pageETags: map[Selector][]*azcore.ETag{},
+	}
+
+	mockClient.On("getSettings", ctx).Return(mockResponse, nil)
+
+	azappcfg := &AzureAppConfiguration{
+		clientManager: &configurationClientManager{
+			staticClient: &configurationClientWrapper{client: &azappconfig.Client{}},
+			endpoint:     "https://test.azconfig.io",
+		},
+		ffSelectors:  getFeatureFlagSelectors([]Selector{}),
+		featureFlags: make(map[string]any),
+		tracingOptions: tracing.Options{
+			Enabled:            true,
+			FeatureFlagTracing: &tracing.FeatureFlagTracing{},
+		},
+	}
+
+	err := azappcfg.loadFeatureFlags(ctx, mockClient)
+	assert.NoError(t, err)
+
+	// Verify feature flags structure
+	featureManagement := azappcfg.featureFlags[featureManagementSectionKey].(map[string]any)
+	featureFlags := featureManagement[featureFlagSectionKey].([]any)
+	assert.Len(t, featureFlags, 1)
+
+	flag := featureFlags[0].(map[string]any)
+	assert.Equal(t, "ExistingMetadataFlag", flag["id"])
+
+	telemetry := flag[telemetryKey].(map[string]any)
+	assert.True(t, telemetry[enabledKey].(bool))
+
+	metadata := telemetry[metadataKey].(map[string]any)
+
+	// Verify existing metadata is preserved
+	assert.Equal(t, "customValue", metadata["customKey"], "Existing custom metadata should be preserved")
+	assert.Equal(t, "1.0", metadata["version"], "Existing version metadata should be preserved")
+
+	// Verify new metadata is added
+	assert.Equal(t, "https://test.azconfig.io/kv/.appconfig.featureflag/ExistingMetadataFlag",
+		metadata[featureFlagReferenceKey], "Feature flag reference should be added to metadata")
+}
+
+func TestGenerateFeatureFlagReference(t *testing.T) {
+	tests := []struct {
+		name     string
+		setting  azappconfig.Setting
+		endpoint string
+		expected string
+	}{
+		{
+			name: "feature flag without label",
+			setting: azappconfig.Setting{
+				Key:   toPtr(".appconfig.featureflag/TestFlag"),
+				Label: nil,
+			},
+			endpoint: "https://mystore.azconfig.io",
+			expected: "https://mystore.azconfig.io/kv/.appconfig.featureflag/TestFlag",
+		},
+		{
+			name: "feature flag with empty label",
+			setting: azappconfig.Setting{
+				Key:   toPtr(".appconfig.featureflag/TestFlag"),
+				Label: toPtr(""),
+			},
+			endpoint: "https://mystore.azconfig.io",
+			expected: "https://mystore.azconfig.io/kv/.appconfig.featureflag/TestFlag",
+		},
+		{
+			name: "feature flag with whitespace-only label",
+			setting: azappconfig.Setting{
+				Key:   toPtr(".appconfig.featureflag/TestFlag"),
+				Label: toPtr("   "),
+			},
+			endpoint: "https://mystore.azconfig.io",
+			expected: "https://mystore.azconfig.io/kv/.appconfig.featureflag/TestFlag",
+		},
+		{
+			name: "feature flag with valid label",
+			setting: azappconfig.Setting{
+				Key:   toPtr(".appconfig.featureflag/TestFlag"),
+				Label: toPtr("production"),
+			},
+			endpoint: "https://mystore.azconfig.io",
+			expected: "https://mystore.azconfig.io/kv/.appconfig.featureflag/TestFlag?label=production",
+		},
+		{
+			name: "feature flag with label containing spaces",
+			setting: azappconfig.Setting{
+				Key:   toPtr(".appconfig.featureflag/TestFlag"),
+				Label: toPtr("staging"),
+			},
+			endpoint: "https://test.azconfig.io",
+			expected: "https://test.azconfig.io/kv/.appconfig.featureflag/TestFlag?label=staging",
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			result := generateFeatureFlagReference(test.setting, test.endpoint)
+			assert.Equal(t, test.expected, result)
+		})
+	}
+}
