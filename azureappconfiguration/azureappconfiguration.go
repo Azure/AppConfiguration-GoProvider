@@ -480,6 +480,11 @@ func (azappcfg *AzureAppConfiguration) loadFeatureFlags(ctx context.Context, set
 
 	dedupFeatureFlags := make(map[string]any, len(settingsResponse.settings))
 	for _, setting := range settingsResponse.settings {
+		// Skip non-feature flag settings
+		if setting.ContentType == nil || *setting.ContentType != featureFlagContentType {
+			continue
+		}
+
 		if setting.Key != nil {
 			var v map[string]any
 			if err := json.Unmarshal([]byte(*setting.Value), &v); err != nil {
@@ -725,7 +730,9 @@ func deduplicateSelectors(selectors []Selector) []Selector {
 
 func getFeatureFlagSelectors(selectors []Selector) []Selector {
 	for i := range selectors {
-		selectors[i].KeyFilter = featureFlagKeyPrefix + selectors[i].KeyFilter
+		if selectors[i].SnapshotName == "" {
+			selectors[i].KeyFilter = featureFlagKeyPrefix + selectors[i].KeyFilter
+		}
 	}
 
 	return selectors
