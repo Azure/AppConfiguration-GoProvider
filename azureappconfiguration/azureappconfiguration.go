@@ -478,7 +478,13 @@ func (azappcfg *AzureAppConfiguration) loadFeatureFlags(ctx context.Context, set
 		return err
 	}
 
+	// endpoint used in feature flag reference
+	var endpoint string
 	dedupFeatureFlags := make(map[string]any, len(settingsResponse.settings))
+	if manager, ok := azappcfg.clientManager.(*configurationClientManager); ok {
+		endpoint = manager.endpoint
+	}
+
 	for _, setting := range settingsResponse.settings {
 		if setting.Key != nil {
 			var v map[string]any
@@ -487,11 +493,7 @@ func (azappcfg *AzureAppConfiguration) loadFeatureFlags(ctx context.Context, set
 				continue
 			}
 
-			if manager, ok := azappcfg.clientManager.(*configurationClientManager); ok {
-				endpoint := manager.endpoint
-				populateTelemetryMetadata(v, setting, endpoint)
-			}
-
+			populateTelemetryMetadata(v, setting, endpoint)
 			azappcfg.updateFeatureFlagTracing(v)
 			dedupFeatureFlags[*setting.Key] = v
 		}
