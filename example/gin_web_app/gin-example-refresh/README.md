@@ -32,15 +32,27 @@ Add the following key-values to the App Configuration store and leave **Label** 
 
 ### Setup
 
-Set the connection string as an environment variable:
+1. Initialize a new Go module.
 
-```bash
-# Windows
-set AZURE_APPCONFIG_CONNECTION_STRING=your-connection-string
+    ```bash
+    go mod init gin-example-refresh
+    ```
+1. Add the required dependencies.
 
-# Linux/macOS
-export AZURE_APPCONFIG_CONNECTION_STRING=your-connection-string
-```
+    ```bash
+    go get github.com/Azure/AppConfiguration-GoProvider/azureappconfiguration
+    go get github.com/gin-gonic/gin
+    ```
+
+1. Set the connection string as an environment variable:
+
+    ```bash
+    # Windows
+    set AZURE_APPCONFIG_CONNECTION_STRING=your-connection-string
+
+    # Linux/macOS
+    export AZURE_APPCONFIG_CONNECTION_STRING=your-connection-string
+    ```
 
 ### Run the Application
 
