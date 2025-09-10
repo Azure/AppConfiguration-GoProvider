@@ -43,6 +43,9 @@ type Options struct {
 	// LoadBalancingEnabled specifies whether to enable load balancing across multiple replicas of the Azure App Configuration service.
 	// It defaults to false.
 	LoadBalancingEnabled bool
+
+	// StartupOptions is used when initially loading data into the configuration provider.
+	StartupOptions StartupOptions
 }
 
 // AuthenticationOptions contains parameters for authenticating with the Azure App Configuration service.
@@ -158,4 +161,10 @@ type ConstructionOptions struct {
 	// Supported values: '.', ',', ';', '-', '_', '__', '/', ':'.
 	// If not provided, the default separator "." will be used.
 	Separator string
+}
+
+// StartupOptions is used when initially loading data into the configuration provider.
+type StartupOptions struct {
+	// Timeout specifies the amount of time allowed to load data from Azure App Configuration on startup.
+	Timeout time.Duration
 }

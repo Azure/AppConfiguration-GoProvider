@@ -26,6 +26,7 @@ import (
 	"strings"
 	"sync"
 	"sync/atomic"
+	"time"
 
 	"github.com/Azure/AppConfiguration-GoProvider/azureappconfiguration/internal/jsonc"
 	"github.com/Azure/AppConfiguration-GoProvider/azureappconfiguration/internal/refresh"
@@ -140,7 +141,7 @@ func Load(ctx context.Context, authentication AuthenticationOptions, options *Op
 		}
 	}
 
-	if err := azappcfg.load(ctx); err != nil {
+	if err := azappcfg.startupWithRetry(ctx, options.StartupOptions.Timeout, azappcfg.load); err != nil {
 		return nil, err
 	}
 	// Set the initial load finished flag
@@ -679,6 +680,62 @@ func (azappcfg *AzureAppConfiguration) executeFailoverPolicy(ctx context.Context
 	// If we reach here, it means all clients failed
 	azappcfg.clientManager.refreshClients(ctx)
 	return fmt.Errorf("failed to get settings from all clients: %v", errors)
+}
+
+// startupWithRetry implements retry logic for startup loading with timeout and exponential backoff
+func (azappcfg *AzureAppConfiguration) startupWithRetry(ctx context.Context, timeout time.Duration, operation func(context.Context) error) error {
+	// If no timeout is specified, use the default startup timeout
+	if timeout <= 0 {
+		timeout = defaultStartupTimeout
+	}
+
+	// Create a context with timeout for the entire startup process
+	startupCtx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+
+	attempt := 0
+	startTime := time.Now()
+
+	for {
+		attempt++
+
+		// Check if we've exceeded the timeout
+		if time.Since(startTime) >= timeout {
+			return fmt.Errorf("startup timeout reached after %v", timeout)
+		}
+
+		// Try to load with the current context
+		err := operation(startupCtx)
+		if err == nil {
+			return nil
+		}
+
+		// Check if the error is retriable
+		if !isFailoverable(err) {
+			return fmt.Errorf("startup failed with non-retriable error: %w", err)
+		}
+
+		// Calculate backoff duration
+		timeElapsed := time.Since(startTime)
+		backoffDuration := getFixedBackoffDuration(timeElapsed)
+		if backoffDuration == 0 {
+			backoffDuration = calculateBackoffDuration(attempt)
+		}
+
+		// Check if we have enough time left to wait and retry
+		timeRemaining := timeout - timeElapsed
+		if timeRemaining <= backoffDuration {
+			return fmt.Errorf("startup failed after %d attempts within timeout %v: %w", attempt, timeout, err)
+		}
+
+		// Wait for the backoff duration before retrying
+		select {
+		case <-startupCtx.Done():
+			return fmt.Errorf("startup context cancelled during backoff: %w", startupCtx.Err())
+		case <-time.After(backoffDuration):
+			// Continue to next retry attempt
+		}
+	}
 }
 
 func (azappcfg *AzureAppConfiguration) trimPrefix(key string) string {
