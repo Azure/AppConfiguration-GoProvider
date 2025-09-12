@@ -699,11 +699,6 @@ func (azappcfg *AzureAppConfiguration) startupWithRetry(ctx context.Context, tim
 	for {
 		attempt++
 
-		// Check if we've exceeded the timeout
-		if time.Since(startTime) >= timeout {
-			return fmt.Errorf("startup timeout reached after %v", timeout)
-		}
-
 		// Try to load with the current context
 		err := operation(startupCtx)
 		if err == nil {
@@ -712,7 +707,7 @@ func (azappcfg *AzureAppConfiguration) startupWithRetry(ctx context.Context, tim
 
 		// Check if the error is retriable
 		if !isFailoverable(err) {
-			return fmt.Errorf("startup failed with non-retriable error: %w", err)
+			return fmt.Errorf("load from Azure App Configuration failed with non-retriable error: %w", err)
 		}
 
 		// Calculate backoff duration
@@ -725,7 +720,7 @@ func (azappcfg *AzureAppConfiguration) startupWithRetry(ctx context.Context, tim
 		// Check if we have enough time left to wait and retry
 		timeRemaining := timeout - timeElapsed
 		if timeRemaining <= backoffDuration {
-			return fmt.Errorf("startup failed after %d attempts within timeout %v: %w", attempt, timeout, err)
+			return fmt.Errorf("load from Azure App Configuration failed after %d attempts within timeout %v: %w", attempt, timeout, err)
 		}
 
 		// Wait for the backoff duration before retrying
