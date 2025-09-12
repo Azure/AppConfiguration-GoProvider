@@ -760,6 +760,7 @@ func configureTracingOptions(options *Options) tracing.Options {
 	}
 
 	tracingOption.Host = tracing.GetHostType()
+	tracingOption.FMVersion = tracing.GetFeatureManagementVersion()
 
 	if !(options.KeyVaultOptions.SecretResolver == nil && options.KeyVaultOptions.Credential == nil) {
 		tracingOption.KeyVaultConfigured = true

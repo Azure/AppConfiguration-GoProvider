@@ -45,6 +45,8 @@ const (
 	LoadBalancingEnabledTag          = "LB"
 
 	// Feature flag usage tracing
+	FMPackageName        = "FEATURE_MANAGEMENT_GO"
+	FMVersionKey         = "FMGoVersion"
 	FeatureFilterTypeKey = "Filter"
 	CustomFilterKey      = "CSTM"
 	TimeWindowFilterKey  = "TIME"
@@ -76,6 +78,7 @@ type Options struct {
 	ReplicaCount                     int
 	IsLoadBalancingEnabled           bool
 	FeatureFlagTracing               *FeatureFlagTracing
+	FMVersion                        string
 }
 
 func GetHostType() HostType {
@@ -91,6 +94,10 @@ func GetHostType() HostType {
 		return HostTypeServiceFabric
 	}
 	return ""
+}
+
+func GetFeatureManagementVersion() string {
+	return os.Getenv(FMPackageName)
 }
 
 func CreateCorrelationContextHeader(ctx context.Context, options Options) http.Header {
@@ -139,6 +146,10 @@ func CreateCorrelationContextHeader(ctx context.Context, options Options) http.H
 	if len(features) > 0 {
 		featureStr := FeaturesKey + "=" + strings.Join(features, DelimiterPlus)
 		output = append(output, featureStr)
+	}
+
+	if options.FMVersion != "" {
+		output = append(output, FMVersionKey+"="+options.FMVersion)
 	}
 
 	if options.FeatureFlagTracing != nil {
