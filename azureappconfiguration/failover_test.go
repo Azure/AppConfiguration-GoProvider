@@ -756,7 +756,7 @@ func TestStartupWithRetry_NonRetriableError(t *testing.T) {
 	err := azappcfg.startupWithRetry(ctx, 10*time.Second, operation)
 
 	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "startup failed with non-retriable error")
+	assert.Contains(t, err.Error(), "load from Azure App Configuration failed with non-retriable error")
 	assert.Equal(t, 1, callCount, "Operation should be called only once for non-retriable error")
 }
 
@@ -787,7 +787,7 @@ func TestStartupWithRetry_Timeout(t *testing.T) {
 	assert.Error(t, err)
 	assert.True(t,
 		err.Error() == "startup timeout reached after 100ms" ||
-			err.Error() == fmt.Sprintf("startup failed after %d attempts within timeout 100ms: %v", callCount, retriableError),
+			err.Error() == fmt.Sprintf("load from Azure App Configuration failed after %d attempts within timeout 100ms: %v", callCount, retriableError),
 		"Error should indicate timeout or max attempts reached: %v", err)
 	assert.True(t, callCount >= 1, "Operation should be called at least once")
 }
@@ -881,7 +881,7 @@ func TestStartupWithRetry_InsufficientTimeForRetry(t *testing.T) {
 	assert.Error(t, err)
 	assert.True(t,
 		err.Error() == "startup timeout reached after 80ms" ||
-			strings.Contains(err.Error(), "startup failed after") && strings.Contains(err.Error(), "attempts within timeout"),
+			strings.Contains(err.Error(), "load from Azure App Configuration failed after") && strings.Contains(err.Error(), "attempts within timeout"),
 		"Error should indicate timeout or insufficient time: %v", err)
 	assert.True(t, callCount >= 1, "Operation should be called at least once")
 }
