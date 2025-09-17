@@ -726,7 +726,7 @@ func (azappcfg *AzureAppConfiguration) startupWithRetry(ctx context.Context, tim
 		// Wait for the backoff duration before retrying
 		select {
 		case <-startupCtx.Done():
-			return fmt.Errorf("startup context cancelled during backoff: %w", startupCtx.Err())
+			return fmt.Errorf("load from Azure App Configuration timed out: %w", startupCtx.Err())
 		case <-time.After(backoffDuration):
 			// Continue to next retry attempt
 		}

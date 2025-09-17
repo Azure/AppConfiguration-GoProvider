@@ -823,7 +823,7 @@ func TestStartupWithRetry_ContextCancelledDuringBackoff(t *testing.T) {
 	err := azappcfg.startupWithRetry(ctx, 10*time.Second, operation)
 
 	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "startup context cancelled during backoff")
+	assert.Contains(t, err.Error(), "load from Azure App Configuration timed out: context canceled")
 }
 
 // Test startupWithRetry with default timeout when zero timeout provided
