@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"net"
 	"net/http"
+	"strings"
 	"testing"
 	"time"
 
@@ -664,17 +665,223 @@ func TestClientWrapper_GetBackoffDuration(t *testing.T) {
 
 	// First failure should return minimum backoff duration
 	client.failedAttempts = 1
-	duration := client.getBackoffDuration()
+	duration := calculateBackoffDuration(client.failedAttempts)
 	assert.True(t, duration >= minBackoffDuration)
 	assert.True(t, duration <= minBackoffDuration*2) // Account for jitter
 
 	// Multiple failures should increase duration exponentially
 	client.failedAttempts = 3
-	duration3 := client.getBackoffDuration()
+	duration3 := calculateBackoffDuration(client.failedAttempts)
 	assert.True(t, duration3 > duration)
 
 	// Very high failure count should be capped at max duration
 	client.failedAttempts = 100
-	durationMax := client.getBackoffDuration()
+	durationMax := calculateBackoffDuration(client.failedAttempts)
 	assert.True(t, durationMax <= maxBackoffDuration*2) // Account for jitter
+}
+
+// Test startupWithRetry with successful operation on first attempt
+func TestStartupWithRetry_Success_FirstAttempt(t *testing.T) {
+	mockClientManager := new(mockClientManager)
+
+	azappcfg := &AzureAppConfiguration{
+		clientManager: mockClientManager,
+		keyValues:     make(map[string]any),
+		featureFlags:  make(map[string]any),
+		kvSelectors:   []Selector{{KeyFilter: "*", LabelFilter: "\x00"}},
+	}
+
+	// Create a successful operation that simply returns nil
+	operation := func(ctx context.Context) error {
+		return nil // Success on first attempt
+	}
+
+	ctx := context.Background()
+	err := azappcfg.startupWithRetry(ctx, 10*time.Second, operation)
+
+	assert.NoError(t, err)
+}
+
+// Test startupWithRetry with retry after retriable error
+func TestStartupWithRetry_Success_AfterRetriableError(t *testing.T) {
+	mockClientManager := new(mockClientManager)
+
+	azappcfg := &AzureAppConfiguration{
+		clientManager: mockClientManager,
+		keyValues:     make(map[string]any),
+		featureFlags:  make(map[string]any),
+		kvSelectors:   []Selector{{KeyFilter: "*", LabelFilter: "\x00"}},
+	}
+
+	callCount := 0
+	retriableError := &azcore.ResponseError{StatusCode: http.StatusServiceUnavailable}
+
+	// Create an operation that fails first, then succeeds
+	operation := func(ctx context.Context) error {
+		callCount++
+		if callCount == 1 {
+			return retriableError // Fail on first attempt
+		}
+		return nil // Success on second attempt
+	}
+
+	ctx := context.Background()
+	err := azappcfg.startupWithRetry(ctx, 10*time.Second, operation)
+
+	assert.NoError(t, err)
+	assert.Equal(t, 2, callCount, "Operation should be called twice")
+}
+
+// Test startupWithRetry with non-retriable error
+func TestStartupWithRetry_NonRetriableError(t *testing.T) {
+	mockClientManager := new(mockClientManager)
+
+	azappcfg := &AzureAppConfiguration{
+		clientManager: mockClientManager,
+		keyValues:     make(map[string]any),
+		featureFlags:  make(map[string]any),
+		kvSelectors:   []Selector{{KeyFilter: "*", LabelFilter: "\x00"}},
+	}
+
+	callCount := 0
+	nonRetriableError := &azcore.ResponseError{StatusCode: http.StatusBadRequest}
+
+	// Create an operation that fails with non-retriable error
+	operation := func(ctx context.Context) error {
+		callCount++
+		return nonRetriableError // Non-retriable error
+	}
+
+	ctx := context.Background()
+	err := azappcfg.startupWithRetry(ctx, 10*time.Second, operation)
+
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "load from Azure App Configuration failed with non-retriable error")
+	assert.Equal(t, 1, callCount, "Operation should be called only once for non-retriable error")
+}
+
+// Test startupWithRetry with timeout
+func TestStartupWithRetry_Timeout(t *testing.T) {
+	mockClientManager := new(mockClientManager)
+
+	azappcfg := &AzureAppConfiguration{
+		clientManager: mockClientManager,
+		keyValues:     make(map[string]any),
+		featureFlags:  make(map[string]any),
+		kvSelectors:   []Selector{{KeyFilter: "*", LabelFilter: "\x00"}},
+	}
+
+	callCount := 0
+	retriableError := &azcore.ResponseError{StatusCode: http.StatusServiceUnavailable}
+
+	// Create an operation that always fails with retriable error
+	operation := func(ctx context.Context) error {
+		callCount++
+		return retriableError // Always fail
+	}
+
+	ctx := context.Background()
+	// Use a very short timeout to trigger timeout quickly
+	err := azappcfg.startupWithRetry(ctx, 100*time.Millisecond, operation)
+
+	assert.Error(t, err)
+	assert.True(t,
+		err.Error() == "startup timeout reached after 100ms" ||
+			err.Error() == fmt.Sprintf("load from Azure App Configuration failed after %d attempts within timeout 100ms: %v", callCount, retriableError),
+		"Error should indicate timeout or max attempts reached: %v", err)
+	assert.True(t, callCount >= 1, "Operation should be called at least once")
+}
+
+// Test startupWithRetry with context cancellation during backoff
+func TestStartupWithRetry_ContextCancelledDuringBackoff(t *testing.T) {
+	mockClientManager := new(mockClientManager)
+
+	azappcfg := &AzureAppConfiguration{
+		clientManager: mockClientManager,
+		keyValues:     make(map[string]any),
+		featureFlags:  make(map[string]any),
+		kvSelectors:   []Selector{{KeyFilter: "*", LabelFilter: "\x00"}},
+	}
+
+	callCount := 0
+	retriableError := &azcore.ResponseError{StatusCode: http.StatusServiceUnavailable}
+
+	// Create an operation that fails with retriable error
+	operation := func(ctx context.Context) error {
+		callCount++
+		return retriableError
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+
+	// Cancel the context after a short delay to simulate cancellation during backoff
+	go func() {
+		time.Sleep(50 * time.Millisecond)
+		cancel()
+	}()
+
+	err := azappcfg.startupWithRetry(ctx, 10*time.Second, operation)
+
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "load from Azure App Configuration timed out: context canceled")
+}
+
+// Test startupWithRetry with default timeout when zero timeout provided
+func TestStartupWithRetry_DefaultTimeout(t *testing.T) {
+	mockClientManager := new(mockClientManager)
+
+	azappcfg := &AzureAppConfiguration{
+		clientManager: mockClientManager,
+		keyValues:     make(map[string]any),
+		featureFlags:  make(map[string]any),
+		kvSelectors:   []Selector{{KeyFilter: "*", LabelFilter: "\x00"}},
+	}
+
+	callCount := 0
+	// Create an operation that succeeds
+	operation := func(ctx context.Context) error {
+		callCount++
+		return nil
+	}
+
+	ctx := context.Background()
+	// Pass zero timeout to test default timeout usage
+	err := azappcfg.startupWithRetry(ctx, 0, operation)
+
+	assert.NoError(t, err)
+	assert.Equal(t, 1, callCount, "Operation should be called once")
+}
+
+// Test startupWithRetry with insufficient time remaining for retry
+func TestStartupWithRetry_InsufficientTimeForRetry(t *testing.T) {
+	mockClientManager := new(mockClientManager)
+
+	azappcfg := &AzureAppConfiguration{
+		clientManager: mockClientManager,
+		keyValues:     make(map[string]any),
+		featureFlags:  make(map[string]any),
+		kvSelectors:   []Selector{{KeyFilter: "*", LabelFilter: "\x00"}},
+	}
+
+	callCount := 0
+	retriableError := &azcore.ResponseError{StatusCode: http.StatusServiceUnavailable}
+
+	// Create an operation that always fails
+	operation := func(ctx context.Context) error {
+		callCount++
+		// Add some delay to consume time
+		time.Sleep(50 * time.Millisecond)
+		return retriableError
+	}
+
+	ctx := context.Background()
+	// Use a short timeout that will be consumed by the first failure and not allow retry
+	err := azappcfg.startupWithRetry(ctx, 80*time.Millisecond, operation)
+
+	assert.Error(t, err)
+	assert.True(t,
+		err.Error() == "startup timeout reached after 80ms" ||
+			strings.Contains(err.Error(), "load from Azure App Configuration failed after") && strings.Contains(err.Error(), "attempts within timeout"),
+		"Error should indicate timeout or insufficient time: %v", err)
+	assert.True(t, callCount >= 1, "Operation should be called at least once")
 }
