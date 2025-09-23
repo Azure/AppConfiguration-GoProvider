@@ -706,7 +706,9 @@ func (azappcfg *AzureAppConfiguration) startupWithRetry(ctx context.Context, tim
 		}
 
 		// Check if the error is retriable
-		if !isFailoverable(err) {
+		if !(isFailoverable(err) ||
+			strings.Contains(err.Error(), "no client is available") ||
+			strings.Contains(err.Error(), "failed to get settings from all clients")) {
 			return fmt.Errorf("load from Azure App Configuration failed with non-retriable error: %w", err)
 		}
 
