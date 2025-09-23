@@ -70,6 +70,12 @@ type Selector struct {
 	// Empty string or omitted value will use the default no-label filter.
 	// Note: Wildcards are not supported in label filters.
 	LabelFilter string
+
+	// Snapshot is a set of key-values selected from the App Configuration store based on the composition type and filters.
+	// Once created, it is stored as an immutable entity that can be referenced by name.
+	// SnapshotName specifies the name of the snapshot to retrieve.
+	// If SnapshotName is used in a selector, no key and label filter should be used for it. Otherwise, an error will be returned.
+	SnapshotName string
 }
 
 // KeyValueRefreshOptions contains optional parameters to configure the behavior of key-value settings refresh

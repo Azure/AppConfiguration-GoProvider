@@ -76,12 +76,18 @@ func verifyOptions(options *Options) error {
 
 func verifySelectors(selectors []Selector) error {
 	for _, selector := range selectors {
-		if selector.KeyFilter == "" {
-			return fmt.Errorf("key filter cannot be empty")
-		}
+		if selector.SnapshotName != "" {
+			if selector.KeyFilter != "" || selector.LabelFilter != "" {
+				return fmt.Errorf("key and label filters should not be used if snapshot name is provided")
+			}
+		} else {
+			if selector.KeyFilter == "" {
+				return fmt.Errorf("one of key filter or snapshot name must be provided")
+			}
 
-		if strings.Contains(selector.LabelFilter, "*") || strings.Contains(selector.LabelFilter, ",") {
-			return fmt.Errorf("label filter cannot contain '*' or ','")
+			if strings.Contains(selector.LabelFilter, "*") || strings.Contains(selector.LabelFilter, ",") {
+				return fmt.Errorf("label filter cannot contain '*' or ','")
+			}
 		}
 	}
 
