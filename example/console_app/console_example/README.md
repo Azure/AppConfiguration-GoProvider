@@ -32,15 +32,26 @@ Add the following key-values to the App Configuration store and leave **Label** 
 
 ### Setup
 
-Set the connection string as an environment variable:
+1. Initialize a new Go module.
 
-```bash
-# Windows
-set AZURE_APPCONFIG_CONNECTION_STRING=your-connection-string
+    ```bash
+    go mod init console-example-app
+    ```
+1. Add the Azure App Configuration provider as a dependency.
 
-# Linux/macOS
-export AZURE_APPCONFIG_CONNECTION_STRING=your-connection-string
-```
+    ```bash
+    go get github.com/Azure/AppConfiguration-GoProvider/azureappconfiguration
+    ```
+
+1. Set the connection string as an environment variable:
+
+    ```bash
+    # Windows
+    set AZURE_APPCONFIG_CONNECTION_STRING=your-connection-string
+
+    # Linux/macOS
+    export AZURE_APPCONFIG_CONNECTION_STRING=your-connection-string
+    ```
 
 ### Run the Application
 

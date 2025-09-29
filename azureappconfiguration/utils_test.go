@@ -47,6 +47,48 @@ func TestVerifyOptions(t *testing.T) {
 			},
 			expectedError: true,
 		},
+		{
+			name: "valid snapshot selector",
+			options: &Options{
+				Selectors: []Selector{
+					{SnapshotName: "my-snapshot"},
+				},
+			},
+			expectedError: false,
+		},
+		{
+			name: "snapshot with key filter",
+			options: &Options{
+				Selectors: []Selector{
+					{SnapshotName: "my-snapshot", KeyFilter: "app*"},
+				},
+			},
+			expectedError: true,
+		},
+		{
+			name: "feature flags with snapshot selector",
+			options: &Options{
+				FeatureFlagOptions: FeatureFlagOptions{
+					Enabled: true,
+					Selectors: []Selector{
+						{SnapshotName: "feature-snapshot"},
+					},
+				},
+			},
+			expectedError: false,
+		},
+		{
+			name: "feature flags with invalid snapshot selector",
+			options: &Options{
+				FeatureFlagOptions: FeatureFlagOptions{
+					Enabled: true,
+					Selectors: []Selector{
+						{SnapshotName: "feature-snapshot", KeyFilter: "feature*"},
+					},
+				},
+			},
+			expectedError: true,
+		},
 	}
 
 	for _, test := range tests {
@@ -98,6 +140,49 @@ func TestVerifySelectors(t *testing.T) {
 			name: "label filter with comma",
 			selectors: []Selector{
 				{KeyFilter: "app*", LabelFilter: "prod,test"},
+			},
+			expectedError: true,
+		},
+		{
+			name: "valid snapshot selector",
+			selectors: []Selector{
+				{SnapshotName: "my-snapshot"},
+			},
+			expectedError: false,
+		},
+		{
+			name: "snapshot with key filter",
+			selectors: []Selector{
+				{SnapshotName: "my-snapshot", KeyFilter: "app*"},
+			},
+			expectedError: true,
+		},
+		{
+			name: "snapshot with label filter",
+			selectors: []Selector{
+				{SnapshotName: "my-snapshot", LabelFilter: "prod"},
+			},
+			expectedError: true,
+		},
+		{
+			name: "snapshot with both key and label filters",
+			selectors: []Selector{
+				{SnapshotName: "my-snapshot", KeyFilter: "app*", LabelFilter: "prod"},
+			},
+			expectedError: true,
+		},
+		{
+			name: "mixed selectors with snapshot and regular",
+			selectors: []Selector{
+				{SnapshotName: "my-snapshot"},
+				{KeyFilter: "app*", LabelFilter: "prod"},
+			},
+			expectedError: false,
+		},
+		{
+			name: "empty snapshot name",
+			selectors: []Selector{
+				{SnapshotName: ""},
 			},
 			expectedError: true,
 		},
@@ -543,7 +628,7 @@ func TestVerifyRefreshOptions(t *testing.T) {
 					},
 				},
 			},
-			expectedError: "key filter cannot be empty",
+			expectedError: "one of key filter or snapshot name must be provided",
 		},
 
 		// Combined scenarios

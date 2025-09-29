@@ -6,6 +6,7 @@ package azureappconfiguration
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log"
 
 	"github.com/Azure/AppConfiguration-GoProvider/azureappconfiguration/internal/tracing"
@@ -62,25 +63,46 @@ func (s *selectorSettingsClient) getSettings(ctx context.Context) (*settingsResp
 	settings := make([]azappconfig.Setting, 0)
 	pageETags := make(map[Selector][]*azcore.ETag)
 	for _, filter := range s.selectors {
-		selector := azappconfig.SettingSelector{
-			KeyFilter:   to.Ptr(filter.KeyFilter),
-			LabelFilter: to.Ptr(filter.LabelFilter),
-			Fields:      azappconfig.AllSettingFields(),
-		}
+		if filter.SnapshotName == "" {
+			selector := azappconfig.SettingSelector{
+				KeyFilter:   to.Ptr(filter.KeyFilter),
+				LabelFilter: to.Ptr(filter.LabelFilter),
+				Fields:      azappconfig.AllSettingFields(),
+			}
 
-		pager := s.client.NewListSettingsPager(selector, nil)
-		eTags := make([]*azcore.ETag, 0)
-		for pager.More() {
-			page, err := pager.NextPage(ctx)
+			pager := s.client.NewListSettingsPager(selector, nil)
+			eTags := make([]*azcore.ETag, 0)
+			for pager.More() {
+				page, err := pager.NextPage(ctx)
+				if err != nil {
+					return nil, err
+				} else if page.Settings != nil {
+					settings = append(settings, page.Settings...)
+					eTags = append(eTags, page.ETag)
+				}
+			}
+
+			pageETags[filter] = eTags
+		} else {
+			snapshot, err := s.client.GetSnapshot(ctx, filter.SnapshotName, nil)
 			if err != nil {
 				return nil, err
-			} else if page.Settings != nil {
-				settings = append(settings, page.Settings...)
-				eTags = append(eTags, page.ETag)
+			}
+
+			if snapshot.CompositionType == nil || *snapshot.CompositionType != azappconfig.CompositionTypeKey {
+				return nil, fmt.Errorf("composition type for the selected snapshot '%s' must be 'key'", filter.SnapshotName)
+			}
+
+			pager := s.client.NewListSettingsForSnapshotPager(filter.SnapshotName, nil)
+			for pager.More() {
+				page, err := pager.NextPage(ctx)
+				if err != nil {
+					return nil, err
+				} else if page.Settings != nil {
+					settings = append(settings, page.Settings...)
+				}
 			}
 		}
-
-		pageETags[filter] = eTags
 	}
 
 	return &settingsResponse{

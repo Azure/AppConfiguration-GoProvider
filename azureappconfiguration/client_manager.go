@@ -335,17 +335,17 @@ func (client *configurationClientWrapper) updateBackoffStatus(success bool) {
 		client.backOffEndTime = time.Time{}
 	} else {
 		client.failedAttempts++
-		client.backOffEndTime = time.Now().Add(client.getBackoffDuration())
+		client.backOffEndTime = time.Now().Add(calculateBackoffDuration(client.failedAttempts))
 	}
 }
 
-func (client *configurationClientWrapper) getBackoffDuration() time.Duration {
-	if client.failedAttempts <= 1 {
+func calculateBackoffDuration(failedAttempts int) time.Duration {
+	if failedAttempts <= 1 {
 		return minBackoffDuration
 	}
 
 	// Cap the exponent to prevent overflow
-	exponent := math.Min(float64(client.failedAttempts-1), float64(safeShiftLimit))
+	exponent := math.Min(float64(failedAttempts-1), float64(safeShiftLimit))
 	calculatedMilliseconds := float64(minBackoffDuration.Milliseconds()) * math.Pow(2, exponent)
 	if calculatedMilliseconds > float64(maxBackoffDuration.Milliseconds()) || calculatedMilliseconds <= 0 {
 		calculatedMilliseconds = float64(maxBackoffDuration.Milliseconds())
@@ -353,6 +353,21 @@ func (client *configurationClientWrapper) getBackoffDuration() time.Duration {
 
 	calculatedDuration := time.Duration(calculatedMilliseconds) * time.Millisecond
 	return jitter(calculatedDuration)
+}
+
+func getFixedBackoffDuration(timeElapsed time.Duration) time.Duration {
+	if timeElapsed < time.Second*100 {
+		return time.Second * 5
+	}
+	if timeElapsed < time.Second*200 {
+		return time.Second * 10
+	}
+
+	if timeElapsed < time.Second*600 {
+		return minBackoffDuration
+	}
+
+	return 0
 }
 
 func jitter(duration time.Duration) time.Duration {

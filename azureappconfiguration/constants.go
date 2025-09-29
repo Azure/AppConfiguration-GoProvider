@@ -69,3 +69,8 @@ const (
 	jitterRatio                         float64       = 0.25
 	safeShiftLimit                      int           = 63
 )
+
+// Startup constants
+const (
+	defaultStartupTimeout time.Duration = 100 * time.Second
+)

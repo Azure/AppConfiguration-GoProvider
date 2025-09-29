@@ -26,6 +26,7 @@ import (
 	"strings"
 	"sync"
 	"sync/atomic"
+	"time"
 
 	"github.com/Azure/AppConfiguration-GoProvider/azureappconfiguration/internal/jsonc"
 	"github.com/Azure/AppConfiguration-GoProvider/azureappconfiguration/internal/refresh"
@@ -140,7 +141,7 @@ func Load(ctx context.Context, authentication AuthenticationOptions, options *Op
 		}
 	}
 
-	if err := azappcfg.load(ctx); err != nil {
+	if err := azappcfg.startupWithRetry(ctx, options.StartupOptions.Timeout, azappcfg.load); err != nil {
 		return nil, err
 	}
 	// Set the initial load finished flag
@@ -480,6 +481,11 @@ func (azappcfg *AzureAppConfiguration) loadFeatureFlags(ctx context.Context, set
 
 	dedupFeatureFlags := make(map[string]any, len(settingsResponse.settings))
 	for _, setting := range settingsResponse.settings {
+		// Skip non-feature flag settings
+		if setting.ContentType == nil || *setting.ContentType != featureFlagContentType {
+			continue
+		}
+
 		if setting.Key != nil {
 			var v map[string]any
 			if err := json.Unmarshal([]byte(*setting.Value), &v); err != nil {
@@ -676,6 +682,59 @@ func (azappcfg *AzureAppConfiguration) executeFailoverPolicy(ctx context.Context
 	return fmt.Errorf("failed to get settings from all clients: %v", errors)
 }
 
+// startupWithRetry implements retry logic for startup loading with timeout and exponential backoff
+func (azappcfg *AzureAppConfiguration) startupWithRetry(ctx context.Context, timeout time.Duration, operation func(context.Context) error) error {
+	// If no timeout is specified, use the default startup timeout
+	if timeout <= 0 {
+		timeout = defaultStartupTimeout
+	}
+
+	// Create a context with timeout for the entire startup process
+	startupCtx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+
+	attempt := 0
+	startTime := time.Now()
+
+	for {
+		attempt++
+
+		// Try to load with the current context
+		err := operation(startupCtx)
+		if err == nil {
+			return nil
+		}
+
+		// Check if the error is retriable
+		if !(isFailoverable(err) ||
+			strings.Contains(err.Error(), "no client is available") ||
+			strings.Contains(err.Error(), "failed to get settings from all clients")) {
+			return fmt.Errorf("load from Azure App Configuration failed with non-retriable error: %w", err)
+		}
+
+		// Calculate backoff duration
+		timeElapsed := time.Since(startTime)
+		backoffDuration := getFixedBackoffDuration(timeElapsed)
+		if backoffDuration == 0 {
+			backoffDuration = calculateBackoffDuration(attempt)
+		}
+
+		// Check if we have enough time left to wait and retry
+		timeRemaining := timeout - timeElapsed
+		if timeRemaining <= backoffDuration {
+			return fmt.Errorf("load from Azure App Configuration failed after %d attempts within timeout %v: %w", attempt, timeout, err)
+		}
+
+		// Wait for the backoff duration before retrying
+		select {
+		case <-startupCtx.Done():
+			return fmt.Errorf("load from Azure App Configuration timed out: %w", startupCtx.Err())
+		case <-time.After(backoffDuration):
+			// Continue to next retry attempt
+		}
+	}
+}
+
 func (azappcfg *AzureAppConfiguration) trimPrefix(key string) string {
 	result := key
 	for _, prefix := range azappcfg.trimPrefixes {
@@ -725,7 +784,9 @@ func deduplicateSelectors(selectors []Selector) []Selector {
 
 func getFeatureFlagSelectors(selectors []Selector) []Selector {
 	for i := range selectors {
-		selectors[i].KeyFilter = featureFlagKeyPrefix + selectors[i].KeyFilter
+		if selectors[i].SnapshotName == "" {
+			selectors[i].KeyFilter = featureFlagKeyPrefix + selectors[i].KeyFilter
+		}
 	}
 
 	return selectors
@@ -760,6 +821,7 @@ func configureTracingOptions(options *Options) tracing.Options {
 	}
 
 	tracingOption.Host = tracing.GetHostType()
+	tracingOption.FMVersion = tracing.GetFeatureManagementVersion()
 
 	if !(options.KeyVaultOptions.SecretResolver == nil && options.KeyVaultOptions.Credential == nil) {
 		tracingOption.KeyVaultConfigured = true

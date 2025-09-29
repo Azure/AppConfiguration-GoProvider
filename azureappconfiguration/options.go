@@ -43,6 +43,9 @@ type Options struct {
 	// LoadBalancingEnabled specifies whether to enable load balancing across multiple replicas of the Azure App Configuration service.
 	// It defaults to false.
 	LoadBalancingEnabled bool
+
+	// StartupOptions is used when initially loading data into the configuration provider.
+	StartupOptions StartupOptions
 }
 
 // AuthenticationOptions contains parameters for authenticating with the Azure App Configuration service.
@@ -70,6 +73,12 @@ type Selector struct {
 	// Empty string or omitted value will use the default no-label filter.
 	// Note: Wildcards are not supported in label filters.
 	LabelFilter string
+
+	// Snapshot is a set of key-values selected from the App Configuration store based on the composition type and filters.
+	// Once created, it is stored as an immutable entity that can be referenced by name.
+	// SnapshotName specifies the name of the snapshot to retrieve.
+	// If SnapshotName is used in a selector, no key and label filter should be used for it. Otherwise, an error will be returned.
+	SnapshotName string
 }
 
 // KeyValueRefreshOptions contains optional parameters to configure the behavior of key-value settings refresh
@@ -152,4 +161,10 @@ type ConstructionOptions struct {
 	// Supported values: '.', ',', ';', '-', '_', '__', '/', ':'.
 	// If not provided, the default separator "." will be used.
 	Separator string
+}
+
+// StartupOptions is used when initially loading data into the configuration provider.
+type StartupOptions struct {
+	// Timeout specifies the amount of time allowed to load data from Azure App Configuration on startup.
+	Timeout time.Duration
 }
