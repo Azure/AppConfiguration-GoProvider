@@ -19,7 +19,7 @@ import (
 type settingsResponse struct {
 	settings     []azappconfig.Setting
 	watchedETags map[WatchedSetting]*azcore.ETag
-	pageETags    map[Selector][]*azcore.ETag
+	pageETags    map[selectorKey][]*azcore.ETag
 }
 
 type selectorSettingsClient struct {
@@ -36,7 +36,7 @@ type watchedSettingClient struct {
 }
 
 type pageETagsClient struct {
-	pageETags      map[Selector][]*azcore.ETag
+	pageETags      map[selectorKey][]*azcore.ETag
 	client         *azappconfig.Client
 	tracingOptions tracing.Options
 }
@@ -61,12 +61,13 @@ func (s *selectorSettingsClient) getSettings(ctx context.Context) (*settingsResp
 	}
 
 	settings := make([]azappconfig.Setting, 0)
-	pageETags := make(map[Selector][]*azcore.ETag)
+	pageETags := make(map[selectorKey][]*azcore.ETag)
 	for _, filter := range s.selectors {
 		if filter.SnapshotName == "" {
 			selector := azappconfig.SettingSelector{
 				KeyFilter:   to.Ptr(filter.KeyFilter),
 				LabelFilter: to.Ptr(filter.LabelFilter),
+				// Todo: TagsFilter : filter.TagFilter
 				Fields:      azappconfig.AllSettingFields(),
 			}
 
@@ -82,7 +83,7 @@ func (s *selectorSettingsClient) getSettings(ctx context.Context) (*settingsResp
 				}
 			}
 
-			pageETags[filter] = eTags
+			pageETags[filter.comparableKey()] = eTags
 		} else {
 			snapshot, err := s.client.GetSnapshot(ctx, filter.SnapshotName, nil)
 			if err != nil {

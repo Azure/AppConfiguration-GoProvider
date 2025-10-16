@@ -77,8 +77,8 @@ func verifyOptions(options *Options) error {
 func verifySelectors(selectors []Selector) error {
 	for _, selector := range selectors {
 		if selector.SnapshotName != "" {
-			if selector.KeyFilter != "" || selector.LabelFilter != "" {
-				return fmt.Errorf("key and label filters should not be used if snapshot name is provided")
+			if selector.KeyFilter != "" || selector.LabelFilter != "" || selector.TagFilter != nil {
+				return fmt.Errorf("key, label and tag filters should not be used if snapshot name is provided")
 			}
 		} else {
 			if selector.KeyFilter == "" {
@@ -88,6 +88,31 @@ func verifySelectors(selectors []Selector) error {
 			if strings.Contains(selector.LabelFilter, "*") || strings.Contains(selector.LabelFilter, ",") {
 				return fmt.Errorf("label filter cannot contain '*' or ','")
 			}
+
+			if err := validateTagFilters(selector.TagFilter); err != nil {
+				return err
+			}
+		}
+	}
+
+	return nil
+}
+
+// validateTagFilters validates that each tag filter follows the required format "tagName=tagValue"
+// and ensures no more than 5 tag filters are provided.
+func validateTagFilters(tagFilters []string) error {
+	if len(tagFilters) > 5 {
+		return fmt.Errorf("up to 5 tag filters can be provided, got %d", len(tagFilters))
+	}
+
+	for _, tagFilter := range tagFilters {
+		if tagFilter == "" {
+			return fmt.Errorf("tag filter cannot be empty")
+		}
+
+		parts := strings.Split(tagFilter, "=")
+		if len(parts) != 2 || parts[0] == "" {
+			return fmt.Errorf("invalid tag filter: %s. Tag filter must follow the format \"tagName=tagValue\"", tagFilter)
 		}
 	}
 

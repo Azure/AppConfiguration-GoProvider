@@ -6,6 +6,8 @@ package azureappconfiguration
 import (
 	"context"
 	"net/url"
+	"sort"
+	"strings"
 	"time"
 
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore"
@@ -79,6 +81,36 @@ type Selector struct {
 	// SnapshotName specifies the name of the snapshot to retrieve.
 	// If SnapshotName is used in a selector, no key and label filter should be used for it. Otherwise, an error will be returned.
 	SnapshotName string
+
+	// TagFilter specifies which tags to retrieve from Azure App Configuration.
+	// Each tag filter must follow the format "tagName=tagValue". Only those key-values will be loaded whose tags match all the tags provided here.
+	// Up to 5 tag filters can be provided. If no tag filters are provided, key-values will not be filtered based on tags.
+	TagFilter []string
+}
+
+// comparableKey returns a comparable representation of the Selector that can be used as a map key.
+// This method creates a deterministic string representation by sorting the TagFilter slice.
+func (s Selector) comparableKey() selectorKey {
+	// Create a copy and sort the TagFilter to ensure deterministic comparison
+	tagFilter := make([]string, len(s.TagFilter))
+	copy(tagFilter, s.TagFilter)
+	sort.Strings(tagFilter)
+
+	return selectorKey{
+		KeyFilter:    s.KeyFilter,
+		LabelFilter:  s.LabelFilter,
+		SnapshotName: s.SnapshotName,
+		TagFilter:    strings.Join(tagFilter, ","),
+	}
+}
+
+// selectorKey is a comparable version of Selector that can be used as a map key.
+// It represents the same selector information but with TagFilter as a sorted, comma-separated string.
+type selectorKey struct {
+	KeyFilter    string
+	LabelFilter  string
+	SnapshotName string
+	TagFilter    string // Sorted, comma-separated representation of the original TagFilter slice
 }
 
 // KeyValueRefreshOptions contains optional parameters to configure the behavior of key-value settings refresh
