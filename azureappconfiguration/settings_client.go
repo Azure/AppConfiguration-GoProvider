@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"strings"
 
 	"github.com/Azure/AppConfiguration-GoProvider/azureappconfiguration/internal/tracing"
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore"
@@ -172,6 +173,7 @@ func (c *pageETagsClient) checkIfETagChanged(ctx context.Context) (bool, error) 
 		s := azappconfig.SettingSelector{
 			KeyFilter:   to.Ptr(selector.KeyFilter),
 			LabelFilter: to.Ptr(selector.LabelFilter),
+			TagsFilter:  strings.Split(selector.TagFilter, ","),
 			Fields:      azappconfig.AllSettingFields(),
 		}
 

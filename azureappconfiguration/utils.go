@@ -77,7 +77,7 @@ func verifyOptions(options *Options) error {
 func verifySelectors(selectors []Selector) error {
 	for _, selector := range selectors {
 		if selector.SnapshotName != "" {
-			if selector.KeyFilter != "" || selector.LabelFilter != "" || selector.TagFilter != nil {
+			if selector.KeyFilter != "" || selector.LabelFilter != "" || len(selector.TagFilter) > 0 {
 				return fmt.Errorf("key, label and tag filters should not be used if snapshot name is provided")
 			}
 		} else {
