@@ -11,7 +11,7 @@ import (
 	"time"
 
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore"
-	"github.com/Azure/azure-sdk-for-go/sdk/data/azappconfig"
+	"github.com/Azure/azure-sdk-for-go/sdk/data/azappconfig/v2"
 )
 
 // Options contains optional parameters to configure the behavior of an Azure App Configuration provider.

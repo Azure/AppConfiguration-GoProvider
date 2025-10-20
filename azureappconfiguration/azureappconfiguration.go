@@ -33,7 +33,7 @@ import (
 	"github.com/Azure/AppConfiguration-GoProvider/azureappconfiguration/internal/tracing"
 	"github.com/Azure/AppConfiguration-GoProvider/azureappconfiguration/internal/tree"
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore"
-	"github.com/Azure/azure-sdk-for-go/sdk/data/azappconfig"
+	"github.com/Azure/azure-sdk-for-go/sdk/data/azappconfig/v2"
 	decoder "github.com/go-viper/mapstructure/v2"
 	"golang.org/x/sync/errgroup"
 )

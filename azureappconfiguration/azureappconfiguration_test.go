@@ -16,7 +16,7 @@ import (
 	"github.com/Azure/AppConfiguration-GoProvider/azureappconfiguration/internal/fm"
 	"github.com/Azure/AppConfiguration-GoProvider/azureappconfiguration/internal/tracing"
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore"
-	"github.com/Azure/azure-sdk-for-go/sdk/data/azappconfig"
+	"github.com/Azure/azure-sdk-for-go/sdk/data/azappconfig/v2"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 )
@@ -1600,4 +1600,147 @@ func TestLoadFeatureFlags_TracingUpdated(t *testing.T) {
 
 	// Verify max variants is included
 	assert.Contains(t, correlationCtx, tracing.FFMaxVariantsKey+"=3")
+}
+
+func TestLoadKeyValues_WithTagFilter(t *testing.T) {
+	ctx := context.Background()
+	mockClient := new(mockSettingsClient)
+
+	// Create mock settings with different tags
+	value1 := "value1"
+	value3 := "value3"
+	value4 := "value4"
+
+	mockResponse := &settingsResponse{
+		settings: []azappconfig.Setting{
+			{
+				Key:   toPtr("app:key1"),
+				Value: &value1,
+				Tags: map[string]*string{
+					"env":  toPtr("production"),
+					"team": toPtr("backend"),
+				},
+			},
+			{
+				Key:   toPtr("app:key3"),
+				Value: &value3,
+				Tags: map[string]*string{
+					"env":  toPtr("production"),
+					"team": toPtr("frontend"),
+				},
+			},
+			{
+				Key:   toPtr("app:key4"),
+				Value: &value4,
+				Tags: map[string]*string{
+					"env":     toPtr("production"),
+					"team":    toPtr("backend"),
+					"feature": toPtr("new"),
+				},
+			},
+		},
+		pageETags: map[selectorKey][]*azcore.ETag{},
+	}
+
+	mockClient.On("getSettings", ctx).Return(mockResponse, nil)
+
+	// Test with single tag filter
+	azappcfg := &AzureAppConfiguration{
+		clientManager: &configurationClientManager{
+			staticClient: &configurationClientWrapper{client: &azappconfig.Client{}},
+		},
+		kvSelectors: []Selector{
+			{
+				KeyFilter: "*",
+				TagFilter: []string{"env=production"},
+			},
+		},
+		keyValues: make(map[string]any),
+	}
+
+	err := azappcfg.loadKeyValues(ctx, mockClient)
+	assert.NoError(t, err)
+
+	// Should load keys with env=production tag (key1, key3, key4)
+	assert.Equal(t, &value1, azappcfg.keyValues["app:key1"])
+	assert.Equal(t, &value3, azappcfg.keyValues["app:key3"])
+	assert.Equal(t, &value4, azappcfg.keyValues["app:key4"])
+	assert.NotContains(t, azappcfg.keyValues, "app:key2") // staging env, should be filtered out
+}
+
+func TestLoadKeyValues_WithMultipleTagFilters(t *testing.T) {
+	ctx := context.Background()
+	mockClient := new(mockSettingsClient)
+
+	value1 := "value1"
+	value4 := "value4"
+
+	mockResponse := &settingsResponse{
+		settings: []azappconfig.Setting{
+			{
+				Key:   toPtr("app:key1"),
+				Value: &value1,
+				Tags: map[string]*string{
+					"env":  toPtr("production"),
+					"team": toPtr("backend"),
+				},
+			},
+			{
+				Key:   toPtr("app:key4"),
+				Value: &value4,
+				Tags: map[string]*string{
+					"env":     toPtr("production"),
+					"team":    toPtr("backend"),
+					"feature": toPtr("new"),
+				},
+			},
+		},
+		pageETags: map[selectorKey][]*azcore.ETag{},
+	}
+
+	mockClient.On("getSettings", ctx).Return(mockResponse, nil)
+
+	// Test with multiple tag filters (must match ALL)
+	azappcfg := &AzureAppConfiguration{
+		clientManager: &configurationClientManager{
+			staticClient: &configurationClientWrapper{client: &azappconfig.Client{}},
+		},
+		kvSelectors: []Selector{
+			{
+				KeyFilter: "*",
+				TagFilter: []string{"env=production", "team=backend"},
+			},
+		},
+		keyValues: make(map[string]any),
+	}
+
+	err := azappcfg.loadKeyValues(ctx, mockClient)
+	assert.NoError(t, err)
+
+	// Should load only keys that match BOTH env=production AND team=backend (key1, key4)
+	assert.Equal(t, &value1, azappcfg.keyValues["app:key1"])
+	assert.Equal(t, &value4, azappcfg.keyValues["app:key4"])
+}
+
+func TestSelectorComparableKey_WithTagFilter(t *testing.T) {
+	// Test that selectors with same TagFilter (but different order) produce the same comparable key
+	selector1 := Selector{
+		KeyFilter:   "app*",
+		LabelFilter: "prod",
+		TagFilter:   []string{"env=production", "team=backend"},
+	}
+
+	selector2 := Selector{
+		KeyFilter:   "app*",
+		LabelFilter: "prod",
+		TagFilter:   []string{"team=backend", "env=production"}, // Different order
+	}
+
+	key1 := selector1.comparableKey()
+	key2 := selector2.comparableKey()
+
+	// Should produce the same comparable key due to sorting
+	assert.Equal(t, key1, key2)
+	assert.Equal(t, "env=production,team=backend", key1.TagFilter)
+	assert.Equal(t, "env=production,team=backend", key2.TagFilter)
 }

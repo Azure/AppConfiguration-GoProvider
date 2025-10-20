@@ -13,7 +13,7 @@ import (
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore"
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore/policy"
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore/to"
-	"github.com/Azure/azure-sdk-for-go/sdk/data/azappconfig"
+	"github.com/Azure/azure-sdk-for-go/sdk/data/azappconfig/v2"
 )
 
 type settingsResponse struct {
@@ -67,7 +67,7 @@ func (s *selectorSettingsClient) getSettings(ctx context.Context) (*settingsResp
 			selector := azappconfig.SettingSelector{
 				KeyFilter:   to.Ptr(filter.KeyFilter),
 				LabelFilter: to.Ptr(filter.LabelFilter),
-				// Todo: TagsFilter : filter.TagFilter
+				TagsFilter:  filter.TagFilter,
 				Fields:      azappconfig.AllSettingFields(),
 			}
 
@@ -168,10 +168,6 @@ func (c *watchedSettingClient) checkIfETagChanged(ctx context.Context) (bool, er
 }
 
 func (c *pageETagsClient) checkIfETagChanged(ctx context.Context) (bool, error) {
-	if c.tracingOptions.Enabled {
-		ctx = policy.WithHTTPHeader(ctx, tracing.CreateCorrelationContextHeader(ctx, c.tracingOptions))
-	}
-
 	for selector, pageETags := range c.pageETags {
 		s := azappconfig.SettingSelector{
 			KeyFilter:   to.Ptr(selector.KeyFilter),

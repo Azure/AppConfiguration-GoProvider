@@ -2,7 +2,7 @@ module github.com/Azure/AppConfiguration-GoProvider/azureappconfiguration
 
 go 1.24.0
 
-require github.com/Azure/azure-sdk-for-go/sdk/data/azappconfig v1.2.0
+require github.com/Azure/azure-sdk-for-go/sdk/data/azappconfig/v2 v2.0.0
 
 require (
 	github.com/Azure/azure-sdk-for-go/sdk/security/keyvault/internal v1.2.0 // indirect
