@@ -5,9 +5,9 @@ package azureappconfiguration
 
 import (
 	"context"
+	"encoding/json"
 	"net/url"
 	"sort"
-	"strings"
 	"time"
 
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore"
@@ -96,21 +96,24 @@ func (s Selector) comparableKey() selectorKey {
 	copy(tagFilter, s.TagFilter)
 	sort.Strings(tagFilter)
 
+	// Use JSON encoding for robust serialization that handles all special characters
+	tagFilterJSON, _ := json.Marshal(tagFilter) // Marshal of []string should never fail
+
 	return selectorKey{
 		KeyFilter:    s.KeyFilter,
 		LabelFilter:  s.LabelFilter,
 		SnapshotName: s.SnapshotName,
-		TagFilter:    strings.Join(tagFilter, ","),
+		TagFilter:    string(tagFilterJSON),
 	}
 }
 
 // selectorKey is a comparable version of Selector that can be used as a map key.
-// It represents the same selector information but with TagFilter as a sorted, comma-separated string.
+// It represents the same selector information but with TagFilter as a sorted, JSON-encoded string.
 type selectorKey struct {
 	KeyFilter    string
 	LabelFilter  string
 	SnapshotName string
-	TagFilter    string // Sorted, comma-separated representation of the original TagFilter slice
+	TagFilter    string // Sorted, JSON-encoded representation of the original TagFilter slice
 }
 
 // KeyValueRefreshOptions contains optional parameters to configure the behavior of key-value settings refresh

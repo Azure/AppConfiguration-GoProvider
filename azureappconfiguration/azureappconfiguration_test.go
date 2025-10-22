@@ -1741,6 +1741,63 @@ func TestSelectorComparableKey_WithTagFilter(t *testing.T) {
 
 	// Should produce the same comparable key due to sorting
 	assert.Equal(t, key1, key2)
-	assert.Equal(t, "env=production,team=backend", key1.TagFilter)
-	assert.Equal(t, "env=production,team=backend", key2.TagFilter)
+	assert.Equal(t, `["env=production","team=backend"]`, key1.TagFilter)
+	assert.Equal(t, `["env=production","team=backend"]`, key2.TagFilter)
+}
+
+func TestSelectorComparableKey_WithSpecialCharacters(t *testing.T) {
+	// Test that selectors handle special characters in tag values correctly
+	selector := Selector{
+		KeyFilter:   "app*",
+		LabelFilter: "prod",
+		TagFilter: []string{
+			`env=prod,staging`,               // Comma in value
+			`description="test,with,quotes"`, // Quotes and commas
+			`path=c:\windows\system32`,       // Backslashes
+			`json={"key":"value"}`,           // JSON in value
+		},
+	}
+
+	key := selector.comparableKey()
+
+	// Verify JSON encoding handles all special characters properly
+	expected := `["description=\"test,with,quotes\"","env=prod,staging","json={\"key\":\"value\"}","path=c:\\windows\\system32"]`
+	assert.Equal(t, expected, key.TagFilter)
+}
+
+func TestSelectorComparableKey_WithEmptyAndNilTagFilter(t *testing.T) {
+	// Test empty TagFilter
+	selector1 := Selector{
+		KeyFilter:   "app*",
+		LabelFilter: "prod",
+		TagFilter:   []string{},
+	}
+
+	key1 := selector1.comparableKey()
+	assert.Equal(t, "[]", key1.TagFilter)
+
+	// Test nil TagFilter (should be handled the same as empty)
+	selector2 := Selector{
+		KeyFilter:   "app*",
+		LabelFilter: "prod",
+		TagFilter:   nil,
+	}
+
+	key2 := selector2.comparableKey()
+	assert.Equal(t, "[]", key2.TagFilter)
+}
+
+func TestSelectorComparableKey_Deterministic(t *testing.T) {
+	// Test that the same selector always produces the same key
+	selector := Selector{
+		KeyFilter:   "app*",
+		LabelFilter: "prod",
+		TagFilter:   []string{"z=last", "a=first", "m=middle"},
+	}
+
+	key1 := selector.comparableKey()
+	key2 := selector.comparableKey()
+
+	assert.Equal(t, key1, key2)
+	assert.Equal(t, `["a=first","m=middle","z=last"]`, key1.TagFilter) // Should be sorted
 }

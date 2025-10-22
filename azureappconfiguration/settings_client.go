@@ -5,10 +5,10 @@ package azureappconfiguration
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log"
-	"strings"
 
 	"github.com/Azure/AppConfiguration-GoProvider/azureappconfiguration/internal/tracing"
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore"
@@ -173,8 +173,13 @@ func (c *pageETagsClient) checkIfETagChanged(ctx context.Context) (bool, error) 
 		s := azappconfig.SettingSelector{
 			KeyFilter:   to.Ptr(selector.KeyFilter),
 			LabelFilter: to.Ptr(selector.LabelFilter),
-			TagsFilter:  strings.Split(selector.TagFilter, ","),
 			Fields:      azappconfig.AllSettingFields(),
+		}
+
+		tagFilters := make([]string, 0)
+		if selector.TagFilter != "" {
+			json.Unmarshal([]byte(selector.TagFilter), &tagFilters)
+			s.TagsFilter = tagFilters
 		}
 
 		conditions := make([]azcore.MatchConditions, 0)
