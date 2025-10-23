@@ -55,8 +55,8 @@ type AzureAppConfiguration struct {
 	// Settings used for refresh scenarios
 	sentinelETags          map[WatchedSetting]*azcore.ETag
 	watchAll               bool
-	kvETags                map[selectorKey][]*azcore.ETag
-	ffETags                map[selectorKey][]*azcore.ETag
+	kvETags                map[comparableSelector][]*azcore.ETag
+	ffETags                map[comparableSelector][]*azcore.ETag
 	keyVaultRefs           map[string]string // unversioned Key Vault references
 	kvRefreshTimer         refresh.Condition
 	secretRefreshTimer     refresh.Condition
@@ -121,7 +121,7 @@ func Load(ctx context.Context, authentication AuthenticationOptions, options *Op
 		azappcfg.kvRefreshTimer = refresh.NewTimer(options.RefreshOptions.Interval)
 		azappcfg.watchedSettings = normalizedWatchedSettings(options.RefreshOptions.WatchedSettings)
 		azappcfg.sentinelETags = make(map[WatchedSetting]*azcore.ETag)
-		azappcfg.kvETags = make(map[selectorKey][]*azcore.ETag)
+		azappcfg.kvETags = make(map[comparableSelector][]*azcore.ETag)
 		if len(options.RefreshOptions.WatchedSettings) == 0 {
 			azappcfg.watchAll = true
 		}
@@ -137,7 +137,7 @@ func Load(ctx context.Context, authentication AuthenticationOptions, options *Op
 		azappcfg.ffSelectors = getFeatureFlagSelectors(deduplicateSelectors(options.FeatureFlagOptions.Selectors))
 		if options.FeatureFlagOptions.RefreshOptions.Enabled {
 			azappcfg.ffRefreshTimer = refresh.NewTimer(options.FeatureFlagOptions.RefreshOptions.Interval)
-			azappcfg.ffETags = make(map[selectorKey][]*azcore.ETag)
+			azappcfg.ffETags = make(map[comparableSelector][]*azcore.ETag)
 		}
 	}
 
@@ -759,7 +759,7 @@ func deduplicateSelectors(selectors []Selector) []Selector {
 	}
 
 	// Create a map to track unique selectors
-	seen := make(map[selectorKey]struct{})
+	seen := make(map[comparableSelector]struct{})
 	var result []Selector
 
 	// Process the selectors in reverse order to maintain the behavior

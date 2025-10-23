@@ -128,7 +128,7 @@ func TestLoadFeatureFlags_Success(t *testing.T) {
 			{Key: toPtr(".appconfig.featureflag/Beta"), Value: &value1, ContentType: toPtr(featureFlagContentType)},
 			{Key: toPtr(".appconfig.featureflag/Alpha"), Value: &value2, ContentType: toPtr(featureFlagContentType)},
 		},
-		pageETags: map[selectorKey][]*azcore.ETag{},
+		pageETags: map[comparableSelector][]*azcore.ETag{},
 	}
 
 	mockClient.On("getSettings", ctx).Return(mockResponse, nil)
@@ -1545,7 +1545,7 @@ func TestLoadFeatureFlags_TracingUpdated(t *testing.T) {
 				ContentType: toPtr(featureFlagContentType),
 			},
 		},
-		pageETags: map[selectorKey][]*azcore.ETag{},
+		pageETags: map[comparableSelector][]*azcore.ETag{},
 	}
 
 	mockClient.On("getSettings", ctx).Return(mockResponse, nil)
@@ -1639,7 +1639,7 @@ func TestLoadKeyValues_WithTagFilter(t *testing.T) {
 				},
 			},
 		},
-		pageETags: map[selectorKey][]*azcore.ETag{},
+		pageETags: map[comparableSelector][]*azcore.ETag{},
 	}
 
 	mockClient.On("getSettings", ctx).Return(mockResponse, nil)
@@ -1695,7 +1695,7 @@ func TestLoadKeyValues_WithMultipleTagFilters(t *testing.T) {
 				},
 			},
 		},
-		pageETags: map[selectorKey][]*azcore.ETag{},
+		pageETags: map[comparableSelector][]*azcore.ETag{},
 	}
 
 	mockClient.On("getSettings", ctx).Return(mockResponse, nil)

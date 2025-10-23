@@ -90,22 +90,22 @@ type Selector struct {
 
 // comparableKey returns a comparable representation of the Selector that can be used as a map key.
 // This method creates a deterministic string representation by sorting the TagFilter slice.
-func (s Selector) comparableKey() selectorKey {
+func (s Selector) comparableKey() comparableSelector {
 	// Deduplicate TagFilter
-    unique := make(map[string]struct{}, len(s.TagFilter))
-    var tagFilter []string
-    for _, tag := range s.TagFilter {
-        if _, exists := unique[tag]; !exists {
-            unique[tag] = struct{}{}
-            tagFilter = append(tagFilter, tag)
-        }
-    }
+	unique := make(map[string]struct{}, len(s.TagFilter))
+	var tagFilter []string
+	for _, tag := range s.TagFilter {
+		if _, exists := unique[tag]; !exists {
+			unique[tag] = struct{}{}
+			tagFilter = append(tagFilter, tag)
+		}
+	}
 	sort.Strings(tagFilter)
 
 	// Use JSON encoding for robust serialization that handles all special characters
 	tagFilterJSON, _ := json.Marshal(tagFilter) // Marshal of []string should never fail
 
-	return selectorKey{
+	return comparableSelector{
 		KeyFilter:    s.KeyFilter,
 		LabelFilter:  s.LabelFilter,
 		SnapshotName: s.SnapshotName,
@@ -113,9 +113,9 @@ func (s Selector) comparableKey() selectorKey {
 	}
 }
 
-// selectorKey is a comparable version of Selector that can be used as a map key.
+// comparableSelector is a comparable version of Selector that can be used as a map key.
 // It represents the same selector information but with TagFilter as a sorted, JSON-encoded string.
-type selectorKey struct {
+type comparableSelector struct {
 	KeyFilter    string
 	LabelFilter  string
 	SnapshotName string
