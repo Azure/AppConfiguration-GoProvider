@@ -91,9 +91,15 @@ type Selector struct {
 // comparableKey returns a comparable representation of the Selector that can be used as a map key.
 // This method creates a deterministic string representation by sorting the TagFilter slice.
 func (s Selector) comparableKey() selectorKey {
-	// Create a copy and sort the TagFilter to ensure deterministic comparison
-	tagFilter := make([]string, len(s.TagFilter))
-	copy(tagFilter, s.TagFilter)
+	// Deduplicate TagFilter
+    unique := make(map[string]struct{}, len(s.TagFilter))
+    var tagFilter []string
+    for _, tag := range s.TagFilter {
+        if _, exists := unique[tag]; !exists {
+            unique[tag] = struct{}{}
+            tagFilter = append(tagFilter, tag)
+        }
+    }
 	sort.Strings(tagFilter)
 
 	// Use JSON encoding for robust serialization that handles all special characters
