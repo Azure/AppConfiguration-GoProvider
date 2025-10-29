@@ -1651,8 +1651,8 @@ func TestLoadKeyValues_WithTagFilter(t *testing.T) {
 		},
 		kvSelectors: []Selector{
 			{
-				KeyFilter: "*",
-				TagFilter: []string{"env=production"},
+				KeyFilter:  "*",
+				TagFilters: []string{"env=production"},
 			},
 		},
 		keyValues: make(map[string]any),
@@ -1707,8 +1707,8 @@ func TestLoadKeyValues_WithMultipleTagFilters(t *testing.T) {
 		},
 		kvSelectors: []Selector{
 			{
-				KeyFilter: "*",
-				TagFilter: []string{"env=production", "team=backend"},
+				KeyFilter:  "*",
+				TagFilters: []string{"env=production", "team=backend"},
 			},
 		},
 		keyValues: make(map[string]any),
@@ -1727,13 +1727,13 @@ func TestSelectorComparableKey_WithTagFilter(t *testing.T) {
 	selector1 := Selector{
 		KeyFilter:   "app*",
 		LabelFilter: "prod",
-		TagFilter:   []string{"env=production", "team=backend"},
+		TagFilters:  []string{"env=production", "team=backend"},
 	}
 
 	selector2 := Selector{
 		KeyFilter:   "app*",
 		LabelFilter: "prod",
-		TagFilter:   []string{"team=backend", "env=production"}, // Different order
+		TagFilters:  []string{"team=backend", "env=production"}, // Different order
 	}
 
 	key1 := selector1.comparableKey()
@@ -1741,8 +1741,8 @@ func TestSelectorComparableKey_WithTagFilter(t *testing.T) {
 
 	// Should produce the same comparable key due to sorting
 	assert.Equal(t, key1, key2)
-	assert.Equal(t, `["env=production","team=backend"]`, key1.TagFilter)
-	assert.Equal(t, `["env=production","team=backend"]`, key2.TagFilter)
+	assert.Equal(t, `["env=production","team=backend"]`, key1.TagFilters)
+	assert.Equal(t, `["env=production","team=backend"]`, key2.TagFilters)
 }
 
 func TestSelectorComparableKey_WithSpecialCharacters(t *testing.T) {
@@ -1750,7 +1750,7 @@ func TestSelectorComparableKey_WithSpecialCharacters(t *testing.T) {
 	selector := Selector{
 		KeyFilter:   "app*",
 		LabelFilter: "prod",
-		TagFilter: []string{
+		TagFilters: []string{
 			`env=prod,staging`,               // Comma in value
 			`description="test,with,quotes"`, // Quotes and commas
 			`path=c:\windows\system32`,       // Backslashes
@@ -1762,7 +1762,7 @@ func TestSelectorComparableKey_WithSpecialCharacters(t *testing.T) {
 
 	// Verify JSON encoding handles all special characters properly
 	expected := `["description=\"test,with,quotes\"","env=prod,staging","json={\"key\":\"value\"}","path=c:\\windows\\system32"]`
-	assert.Equal(t, expected, key.TagFilter)
+	assert.Equal(t, expected, key.TagFilters)
 }
 
 func TestSelectorComparableKey_WithEmptyAndNilTagFilter(t *testing.T) {
@@ -1770,21 +1770,21 @@ func TestSelectorComparableKey_WithEmptyAndNilTagFilter(t *testing.T) {
 	selector1 := Selector{
 		KeyFilter:   "app*",
 		LabelFilter: "prod",
-		TagFilter:   []string{},
+		TagFilters:  []string{},
 	}
 
 	key1 := selector1.comparableKey()
-	assert.Equal(t, "null", key1.TagFilter)
+	assert.Equal(t, "null", key1.TagFilters)
 
 	// Test nil TagFilter (should be handled the same as empty)
 	selector2 := Selector{
 		KeyFilter:   "app*",
 		LabelFilter: "prod",
-		TagFilter:   nil,
+		TagFilters:  nil,
 	}
 
 	key2 := selector2.comparableKey()
-	assert.Equal(t, "null", key2.TagFilter)
+	assert.Equal(t, "null", key2.TagFilters)
 }
 
 func TestSelectorComparableKey_Deterministic(t *testing.T) {
@@ -1792,12 +1792,12 @@ func TestSelectorComparableKey_Deterministic(t *testing.T) {
 	selector := Selector{
 		KeyFilter:   "app*",
 		LabelFilter: "prod",
-		TagFilter:   []string{"z=last", "a=first", "m=middle"},
+		TagFilters:  []string{"z=last", "a=first", "m=middle"},
 	}
 
 	key1 := selector.comparableKey()
 	key2 := selector.comparableKey()
 
 	assert.Equal(t, key1, key2)
-	assert.Equal(t, `["a=first","m=middle","z=last"]`, key1.TagFilter) // Should be sorted
+	assert.Equal(t, `["a=first","m=middle","z=last"]`, key1.TagFilters) // Should be sorted
 }

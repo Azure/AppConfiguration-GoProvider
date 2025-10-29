@@ -68,7 +68,7 @@ func (s *selectorSettingsClient) getSettings(ctx context.Context) (*settingsResp
 			selector := azappconfig.SettingSelector{
 				KeyFilter:   to.Ptr(filter.KeyFilter),
 				LabelFilter: to.Ptr(filter.LabelFilter),
-				TagsFilter:  filter.TagFilter,
+				TagsFilter:  filter.TagFilters,
 				Fields:      azappconfig.AllSettingFields(),
 			}
 
@@ -177,8 +177,8 @@ func (c *pageETagsClient) checkIfETagChanged(ctx context.Context) (bool, error) 
 		}
 
 		tagFilters := make([]string, 0)
-		if selector.TagFilter != "" && selector.TagFilter != "null" {
-			json.Unmarshal([]byte(selector.TagFilter), &tagFilters)
+		if selector.TagFilters != "" && selector.TagFilters != "null" {
+			json.Unmarshal([]byte(selector.TagFilters), &tagFilters)
 			s.TagsFilter = tagFilters
 		}
 

@@ -189,28 +189,28 @@ func TestVerifySelectors(t *testing.T) {
 		{
 			name: "valid tag filter",
 			selectors: []Selector{
-				{KeyFilter: "app*", LabelFilter: "prod", TagFilter: []string{"environment=production", "team=backend"}},
+				{KeyFilter: "app*", LabelFilter: "prod", TagFilters: []string{"environment=production", "team=backend"}},
 			},
 			expectedError: false,
 		},
 		{
 			name: "invalid tag filter format",
 			selectors: []Selector{
-				{KeyFilter: "app*", LabelFilter: "prod", TagFilter: []string{"invalid_format"}},
+				{KeyFilter: "app*", LabelFilter: "prod", TagFilters: []string{"invalid_format"}},
 			},
 			expectedError: true,
 		},
 		{
 			name: "too many tag filters",
 			selectors: []Selector{
-				{KeyFilter: "app*", LabelFilter: "prod", TagFilter: []string{"tag1=val1", "tag2=val2", "tag3=val3", "tag4=val4", "tag5=val5", "tag6=val6"}},
+				{KeyFilter: "app*", LabelFilter: "prod", TagFilters: []string{"tag1=val1", "tag2=val2", "tag3=val3", "tag4=val4", "tag5=val5", "tag6=val6"}},
 			},
 			expectedError: true,
 		},
 		{
 			name: "tag filter with snapshot (should fail)",
 			selectors: []Selector{
-				{SnapshotName: "my-snapshot", TagFilter: []string{"environment=production"}},
+				{SnapshotName: "my-snapshot", TagFilters: []string{"environment=production"}},
 			},
 			expectedError: true,
 		},

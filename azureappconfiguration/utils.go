@@ -77,7 +77,7 @@ func verifyOptions(options *Options) error {
 func verifySelectors(selectors []Selector) error {
 	for _, selector := range selectors {
 		if selector.SnapshotName != "" {
-			if selector.KeyFilter != "" || selector.LabelFilter != "" || len(selector.TagFilter) > 0 {
+			if selector.KeyFilter != "" || selector.LabelFilter != "" || len(selector.TagFilters) > 0 {
 				return fmt.Errorf("key, label and tag filters should not be used if snapshot name is provided")
 			}
 		} else {
@@ -89,7 +89,7 @@ func verifySelectors(selectors []Selector) error {
 				return fmt.Errorf("label filter cannot contain '*' or ','")
 			}
 
-			if err := validateTagFilters(selector.TagFilter); err != nil {
+			if err := validateTagFilters(selector.TagFilters); err != nil {
 				return err
 			}
 		}
