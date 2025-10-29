@@ -1774,7 +1774,7 @@ func TestSelectorComparableKey_WithEmptyAndNilTagFilter(t *testing.T) {
 	}
 
 	key1 := selector1.comparableKey()
-	assert.Equal(t, "null", key1.TagFilters)
+	assert.Equal(t, "", key1.TagFilters)
 
 	// Test nil TagFilter (should be handled the same as empty)
 	selector2 := Selector{
@@ -1784,7 +1784,7 @@ func TestSelectorComparableKey_WithEmptyAndNilTagFilter(t *testing.T) {
 	}
 
 	key2 := selector2.comparableKey()
-	assert.Equal(t, "null", key2.TagFilters)
+	assert.Equal(t, "", key2.TagFilters)
 }
 
 func TestSelectorComparableKey_Deterministic(t *testing.T) {

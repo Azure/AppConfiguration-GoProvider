@@ -177,7 +177,7 @@ func (c *pageETagsClient) checkIfETagChanged(ctx context.Context) (bool, error) 
 		}
 
 		tagFilters := make([]string, 0)
-		if selector.TagFilters != "" && selector.TagFilters != "null" {
+		if selector.TagFilters != "" {
 			json.Unmarshal([]byte(selector.TagFilters), &tagFilters)
 			s.TagsFilter = tagFilters
 		}
