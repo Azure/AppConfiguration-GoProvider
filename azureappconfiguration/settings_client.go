@@ -5,6 +5,7 @@ package azureappconfiguration
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log"
@@ -13,13 +14,13 @@ import (
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore"
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore/policy"
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore/to"
-	"github.com/Azure/azure-sdk-for-go/sdk/data/azappconfig"
+	"github.com/Azure/azure-sdk-for-go/sdk/data/azappconfig/v2"
 )
 
 type settingsResponse struct {
 	settings     []azappconfig.Setting
 	watchedETags map[WatchedSetting]*azcore.ETag
-	pageETags    map[Selector][]*azcore.ETag
+	pageETags    map[comparableSelector][]*azcore.ETag
 }
 
 type selectorSettingsClient struct {
@@ -36,7 +37,7 @@ type watchedSettingClient struct {
 }
 
 type pageETagsClient struct {
-	pageETags      map[Selector][]*azcore.ETag
+	pageETags      map[comparableSelector][]*azcore.ETag
 	client         *azappconfig.Client
 	tracingOptions tracing.Options
 }
@@ -61,12 +62,13 @@ func (s *selectorSettingsClient) getSettings(ctx context.Context) (*settingsResp
 	}
 
 	settings := make([]azappconfig.Setting, 0)
-	pageETags := make(map[Selector][]*azcore.ETag)
+	pageETags := make(map[comparableSelector][]*azcore.ETag)
 	for _, filter := range s.selectors {
 		if filter.SnapshotName == "" {
 			selector := azappconfig.SettingSelector{
 				KeyFilter:   to.Ptr(filter.KeyFilter),
 				LabelFilter: to.Ptr(filter.LabelFilter),
+				TagsFilter:  filter.TagFilters,
 				Fields:      azappconfig.AllSettingFields(),
 			}
 
@@ -82,7 +84,7 @@ func (s *selectorSettingsClient) getSettings(ctx context.Context) (*settingsResp
 				}
 			}
 
-			pageETags[filter] = eTags
+			pageETags[filter.comparableKey()] = eTags
 		} else {
 			snapshot, err := s.client.GetSnapshot(ctx, filter.SnapshotName, nil)
 			if err != nil {
@@ -167,15 +169,17 @@ func (c *watchedSettingClient) checkIfETagChanged(ctx context.Context) (bool, er
 }
 
 func (c *pageETagsClient) checkIfETagChanged(ctx context.Context) (bool, error) {
-	if c.tracingOptions.Enabled {
-		ctx = policy.WithHTTPHeader(ctx, tracing.CreateCorrelationContextHeader(ctx, c.tracingOptions))
-	}
-
 	for selector, pageETags := range c.pageETags {
 		s := azappconfig.SettingSelector{
 			KeyFilter:   to.Ptr(selector.KeyFilter),
 			LabelFilter: to.Ptr(selector.LabelFilter),
 			Fields:      azappconfig.AllSettingFields(),
+		}
+
+		tagFilters := make([]string, 0)
+		if selector.TagFilters != "" {
+			json.Unmarshal([]byte(selector.TagFilters), &tagFilters)
+			s.TagsFilter = tagFilters
 		}
 
 		conditions := make([]azcore.MatchConditions, 0)

@@ -186,6 +186,34 @@ func TestVerifySelectors(t *testing.T) {
 			},
 			expectedError: true,
 		},
+		{
+			name: "valid tag filter",
+			selectors: []Selector{
+				{KeyFilter: "app*", LabelFilter: "prod", TagFilters: []string{"environment=production", "team=backend"}},
+			},
+			expectedError: false,
+		},
+		{
+			name: "invalid tag filter format",
+			selectors: []Selector{
+				{KeyFilter: "app*", LabelFilter: "prod", TagFilters: []string{"invalid_format"}},
+			},
+			expectedError: true,
+		},
+		{
+			name: "too many tag filters",
+			selectors: []Selector{
+				{KeyFilter: "app*", LabelFilter: "prod", TagFilters: []string{"tag1=val1", "tag2=val2", "tag3=val3", "tag4=val4", "tag5=val5", "tag6=val6"}},
+			},
+			expectedError: true,
+		},
+		{
+			name: "tag filter with snapshot (should fail)",
+			selectors: []Selector{
+				{SnapshotName: "my-snapshot", TagFilters: []string{"environment=production"}},
+			},
+			expectedError: true,
+		},
 	}
 
 	for _, test := range tests {
@@ -193,6 +221,86 @@ func TestVerifySelectors(t *testing.T) {
 			err := verifySelectors(test.selectors)
 			if test.expectedError {
 				assert.Error(t, err)
+			} else {
+				assert.NoError(t, err)
+			}
+		})
+	}
+}
+
+func TestValidateTagFilters(t *testing.T) {
+	tests := []struct {
+		name          string
+		tagFilters    []string
+		expectedError bool
+		errorContains string
+	}{
+		{
+			name:          "empty tag filters",
+			tagFilters:    []string{},
+			expectedError: false,
+		},
+		{
+			name:          "valid single tag filter",
+			tagFilters:    []string{"environment=production"},
+			expectedError: false,
+		},
+		{
+			name:          "valid multiple tag filters",
+			tagFilters:    []string{"environment=production", "team=backend", "version=1.0"},
+			expectedError: false,
+		},
+		{
+			name:          "valid tag filter with numbers and special chars",
+			tagFilters:    []string{"tag=value\\,with\\,commas"},
+			expectedError: false,
+		},
+		{
+			name:          "too many tag filters (more than 5)",
+			tagFilters:    []string{"tag1=value1", "tag2=value2", "tag3=value3", "tag4=value4", "tag5=value5", "tag6=value6"},
+			expectedError: true,
+			errorContains: "up to 5 tag filters can be provided",
+		},
+		{
+			name:          "empty tag filter string",
+			tagFilters:    []string{""},
+			expectedError: true,
+			errorContains: "tag filter cannot be empty",
+		},
+		{
+			name:          "invalid format - no equals sign",
+			tagFilters:    []string{"environmentproduction"},
+			expectedError: true,
+			errorContains: "Tag filter must follow the format",
+		},
+		{
+			name:          "invalid format - empty tag name",
+			tagFilters:    []string{"=production"},
+			expectedError: true,
+			errorContains: "Tag filter must follow the format",
+		},
+		{
+			name:          "invalid format - only equals sign",
+			tagFilters:    []string{"="},
+			expectedError: true,
+			errorContains: "Tag filter must follow the format",
+		},
+		{
+			name:          "mixed valid and invalid tag filters",
+			tagFilters:    []string{"environment=production", "invalid_format"},
+			expectedError: true,
+			errorContains: "Tag filter must follow the format",
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			err := validateTagFilters(test.tagFilters)
+			if test.expectedError {
+				assert.Error(t, err)
+				if test.errorContains != "" {
+					assert.Contains(t, err.Error(), test.errorContains)
+				}
 			} else {
 				assert.NoError(t, err)
 			}
