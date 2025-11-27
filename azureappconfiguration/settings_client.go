@@ -86,24 +86,11 @@ func (s *selectorSettingsClient) getSettings(ctx context.Context) (*settingsResp
 
 			pageETags[filter.comparableKey()] = eTags
 		} else {
-			snapshot, err := s.client.GetSnapshot(ctx, filter.SnapshotName, nil)
+			snapshotSettings, err := loadSnapshotSettings(ctx, s.client, filter.SnapshotName)
 			if err != nil {
 				return nil, err
 			}
-
-			if snapshot.CompositionType == nil || *snapshot.CompositionType != azappconfig.CompositionTypeKey {
-				return nil, fmt.Errorf("composition type for the selected snapshot '%s' must be 'key'", filter.SnapshotName)
-			}
-
-			pager := s.client.NewListSettingsForSnapshotPager(filter.SnapshotName, nil)
-			for pager.More() {
-				page, err := pager.NextPage(ctx)
-				if err != nil {
-					return nil, err
-				} else if page.Settings != nil {
-					settings = append(settings, page.Settings...)
-				}
-			}
+			settings = append(settings, snapshotSettings...)
 		}
 	}
 
@@ -210,4 +197,28 @@ func (c *pageETagsClient) checkIfETagChanged(ctx context.Context) (bool, error) 
 	}
 
 	return false, nil
+}
+
+func loadSnapshotSettings(ctx context.Context, client *azappconfig.Client, snapshotName string) ([]azappconfig.Setting, error) {
+	settings := make([]azappconfig.Setting, 0)
+	snapshot, err := client.GetSnapshot(ctx, snapshotName, nil)
+	if err != nil {
+		return nil, err
+	}
+
+	if snapshot.CompositionType == nil || *snapshot.CompositionType != azappconfig.CompositionTypeKey {
+		return nil, fmt.Errorf("composition type for the selected snapshot '%s' must be 'key'", snapshotName)
+	}
+
+	pager := client.NewListSettingsForSnapshotPager(snapshotName, nil)
+	for pager.More() {
+		page, err := pager.NextPage(ctx)
+		if err != nil {
+			return nil, err
+		} else if page.Settings != nil {
+			settings = append(settings, page.Settings...)
+		}
+	}
+
+	return settings, nil
 }
