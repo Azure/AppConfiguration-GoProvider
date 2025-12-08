@@ -33,7 +33,7 @@ import (
 	"github.com/Azure/AppConfiguration-GoProvider/azureappconfiguration/internal/tracing"
 	"github.com/Azure/AppConfiguration-GoProvider/azureappconfiguration/internal/tree"
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore"
-	"github.com/Azure/azure-sdk-for-go/sdk/data/azappconfig"
+	"github.com/Azure/azure-sdk-for-go/sdk/data/azappconfig/v2"
 	decoder "github.com/go-viper/mapstructure/v2"
 	"golang.org/x/sync/errgroup"
 )
@@ -55,8 +55,8 @@ type AzureAppConfiguration struct {
 	// Settings used for refresh scenarios
 	sentinelETags          map[WatchedSetting]*azcore.ETag
 	watchAll               bool
-	kvETags                map[Selector][]*azcore.ETag
-	ffETags                map[Selector][]*azcore.ETag
+	kvETags                map[comparableSelector][]*azcore.ETag
+	ffETags                map[comparableSelector][]*azcore.ETag
 	keyVaultRefs           map[string]string // unversioned Key Vault references
 	kvRefreshTimer         refresh.Condition
 	secretRefreshTimer     refresh.Condition
@@ -121,7 +121,7 @@ func Load(ctx context.Context, authentication AuthenticationOptions, options *Op
 		azappcfg.kvRefreshTimer = refresh.NewTimer(options.RefreshOptions.Interval)
 		azappcfg.watchedSettings = normalizedWatchedSettings(options.RefreshOptions.WatchedSettings)
 		azappcfg.sentinelETags = make(map[WatchedSetting]*azcore.ETag)
-		azappcfg.kvETags = make(map[Selector][]*azcore.ETag)
+		azappcfg.kvETags = make(map[comparableSelector][]*azcore.ETag)
 		if len(options.RefreshOptions.WatchedSettings) == 0 {
 			azappcfg.watchAll = true
 		}
@@ -137,7 +137,7 @@ func Load(ctx context.Context, authentication AuthenticationOptions, options *Op
 		azappcfg.ffSelectors = getFeatureFlagSelectors(deduplicateSelectors(options.FeatureFlagOptions.Selectors))
 		if options.FeatureFlagOptions.RefreshOptions.Enabled {
 			azappcfg.ffRefreshTimer = refresh.NewTimer(options.FeatureFlagOptions.RefreshOptions.Interval)
-			azappcfg.ffETags = make(map[Selector][]*azcore.ETag)
+			azappcfg.ffETags = make(map[comparableSelector][]*azcore.ETag)
 		}
 	}
 
@@ -759,7 +759,7 @@ func deduplicateSelectors(selectors []Selector) []Selector {
 	}
 
 	// Create a map to track unique selectors
-	seen := make(map[Selector]struct{})
+	seen := make(map[comparableSelector]struct{})
 	var result []Selector
 
 	// Process the selectors in reverse order to maintain the behavior
@@ -771,8 +771,9 @@ func deduplicateSelectors(selectors []Selector) []Selector {
 		}
 
 		// Check if we've seen this selector before
-		if _, exists := seen[selectors[i]]; !exists {
-			seen[selectors[i]] = struct{}{}
+		key := selectors[i].comparableKey()
+		if _, exists := seen[key]; !exists {
+			seen[key] = struct{}{}
 			result = append(result, selectors[i])
 		}
 	}

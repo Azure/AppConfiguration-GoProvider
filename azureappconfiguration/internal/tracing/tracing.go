@@ -45,8 +45,8 @@ const (
 	LoadBalancingEnabledTag          = "LB"
 
 	// Feature flag usage tracing
-	FMGoVerEnv        = "MS_FEATURE_MANAGEMENT_GO_VERSION"
-	FMGoVerKey         = "FMGoVer"
+	FMGoVerEnv           = "MS_FEATURE_MANAGEMENT_GO_VERSION"
+	FMGoVerKey           = "FMGoVer"
 	FeatureFilterTypeKey = "Filter"
 	CustomFilterKey      = "CSTM"
 	TimeWindowFilterKey  = "TIME"
