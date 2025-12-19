@@ -91,7 +91,7 @@ type Selector struct {
 // comparableKey returns a comparable representation of the Selector that can be used as a map key.
 // This method creates a deterministic string representation by sorting the TagFilter slice.
 func (s Selector) comparableKey() comparableSelector {
-	cs :=  comparableSelector{
+	cs := comparableSelector{
 		KeyFilter:    s.KeyFilter,
 		LabelFilter:  s.LabelFilter,
 		SnapshotName: s.SnapshotName,
