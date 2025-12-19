@@ -43,6 +43,7 @@ const (
 	FailoverRequestTag               = "Failover"
 	ReplicaCountKey                  = "ReplicaCount"
 	LoadBalancingEnabledTag          = "LB"
+	AFDUsedTag                       = "AFD"
 
 	// Feature flag usage tracing
 	FMGoVerEnv           = "MS_FEATURE_MANAGEMENT_GO_VERSION"
@@ -77,6 +78,7 @@ type Options struct {
 	IsFailoverRequest                bool
 	ReplicaCount                     int
 	IsLoadBalancingEnabled           bool
+	AfdUsed                          bool
 	FeatureFlagTracing               *FeatureFlagTracing
 	FMVersion                        string
 }
@@ -141,6 +143,10 @@ func CreateCorrelationContextHeader(ctx context.Context, options Options) http.H
 
 	if options.IsLoadBalancingEnabled {
 		features = append(features, LoadBalancingEnabledTag)
+	}
+
+	if options.AfdUsed {
+		features = append(features, AFDUsedTag)
 	}
 
 	if len(features) > 0 {
