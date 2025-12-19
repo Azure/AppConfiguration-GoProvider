@@ -52,7 +52,6 @@ type AzureAppConfiguration struct {
 	trimPrefixes         []string
 	watchedSettings      []WatchedSetting
 	loadBalancingEnabled bool
-	afdUsed              bool
 
 	// Settings used for refresh scenarios
 	sentinelETags          map[WatchedSetting]*azcore.ETag
@@ -121,7 +120,6 @@ func Load(ctx context.Context, authentication AuthenticationOptions, options *Op
 
 	if authentication.Credential != nil {
 		if _, ok := authentication.Credential.(*afd.EmptyTokenCredential); ok {
-			azappcfg.afdUsed = true
 			azappcfg.tracingOptions.AfdUsed = true
 		}
 	}
