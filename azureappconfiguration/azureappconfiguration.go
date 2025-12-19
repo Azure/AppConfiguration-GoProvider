@@ -28,6 +28,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/Azure/AppConfiguration-GoProvider/azureappconfiguration/internal/afd"
 	"github.com/Azure/AppConfiguration-GoProvider/azureappconfiguration/internal/jsonc"
 	"github.com/Azure/AppConfiguration-GoProvider/azureappconfiguration/internal/refresh"
 	"github.com/Azure/AppConfiguration-GoProvider/azureappconfiguration/internal/tracing"
@@ -51,12 +52,13 @@ type AzureAppConfiguration struct {
 	trimPrefixes         []string
 	watchedSettings      []WatchedSetting
 	loadBalancingEnabled bool
+	afdUsed              bool
 
 	// Settings used for refresh scenarios
 	sentinelETags          map[WatchedSetting]*azcore.ETag
 	watchAll               bool
-	kvETags                map[comparableSelector][]*azcore.ETag
-	ffETags                map[comparableSelector][]*azcore.ETag
+	kvWatchers             map[comparableSelector][]settingWatcher
+	ffWatchers             map[comparableSelector][]settingWatcher
 	keyVaultRefs           map[string]string // unversioned Key Vault references
 	kvRefreshTimer         refresh.Condition
 	secretRefreshTimer     refresh.Condition
@@ -117,11 +119,18 @@ func Load(ctx context.Context, authentication AuthenticationOptions, options *Op
 		credential:     options.KeyVaultOptions.Credential,
 	}
 
+	if authentication.Credential != nil {
+		if _, ok := authentication.Credential.(*afd.EmptyTokenCredential); ok {
+			azappcfg.afdUsed = true
+			azappcfg.tracingOptions.AfdUsed = true
+		}
+	}
+
 	if options.RefreshOptions.Enabled {
 		azappcfg.kvRefreshTimer = refresh.NewTimer(options.RefreshOptions.Interval)
 		azappcfg.watchedSettings = normalizedWatchedSettings(options.RefreshOptions.WatchedSettings)
 		azappcfg.sentinelETags = make(map[WatchedSetting]*azcore.ETag)
-		azappcfg.kvETags = make(map[comparableSelector][]*azcore.ETag)
+		azappcfg.kvWatchers = make(map[comparableSelector][]settingWatcher)
 		if len(options.RefreshOptions.WatchedSettings) == 0 {
 			azappcfg.watchAll = true
 		}
@@ -137,7 +146,7 @@ func Load(ctx context.Context, authentication AuthenticationOptions, options *Op
 		azappcfg.ffSelectors = getFeatureFlagSelectors(deduplicateSelectors(options.FeatureFlagOptions.Selectors))
 		if options.FeatureFlagOptions.RefreshOptions.Enabled {
 			azappcfg.ffRefreshTimer = refresh.NewTimer(options.FeatureFlagOptions.RefreshOptions.Interval)
-			azappcfg.ffETags = make(map[comparableSelector][]*azcore.ETag)
+			azappcfg.ffWatchers = make(map[comparableSelector][]settingWatcher)
 		}
 	}
 
@@ -148,6 +157,41 @@ func Load(ctx context.Context, authentication AuthenticationOptions, options *Op
 	azappcfg.tracingOptions.InitialLoadFinished = true
 
 	return azappcfg, nil
+}
+
+func (azappcfg *AzureAppConfiguration) LoadFromAzureFrontDoor(ctx context.Context, endpoint string, options *Options) (*AzureAppConfiguration, error) {
+	if options == nil {
+		options = &Options{}
+	}
+
+	if options.ReplicaDiscoveryEnabled != nil && *options.ReplicaDiscoveryEnabled {
+		return nil, errors.New("replica discovery is not supported when loading from Azure Front Door. For guidance on how to take advantage of geo-replication when Azure Front Door is used, visit https://aka.ms/appconfig/geo-replication-with-afd")
+	}
+
+	if options.LoadBalancingEnabled {
+		return nil, errors.New("load balancing is not supported when loading from Azure Front Door. For guidance on how to take advantage of geo-replication when Azure Front Door is used, visit https://aka.ms/appconfig/geo-replication-with-afd")
+	}
+
+	if options.RefreshOptions.Enabled &&
+		len(options.RefreshOptions.WatchedSettings) > 0 {
+		return nil, errors.New("specifying watched settings is not supported when loading from Azure Front Door. If refresh is enabled, all loaded configuration settings will be watched automatically")
+	}
+
+	disableReplicaDiscovery := false
+	options.ReplicaDiscoveryEnabled = &disableReplicaDiscovery
+
+	if options.ClientOptions == nil {
+		options.ClientOptions = &azappconfig.ClientOptions{}
+	}
+
+	options.ClientOptions.PerRetryPolicies = append(options.ClientOptions.PerRetryPolicies, afd.NewAnonymousRequestPipelinePolicy(), afd.NewRemoveSyncTokenPipelinePolicy())
+
+	authOptions := AuthenticationOptions{
+		Endpoint:   endpoint,
+		Credential: afd.NewEmptyTokenCredential(),
+	}
+
+	return Load(ctx, authOptions, options)
 }
 
 // Unmarshal parses the configuration and stores the result in the value pointed to v. It builds a hierarchical configuration structure based on key separators.
@@ -451,7 +495,7 @@ func (azappcfg *AzureAppConfiguration) loadKeyValues(ctx context.Context, settin
 	maps.Copy(kvSettings, secrets)
 	azappcfg.keyValues = kvSettings
 	azappcfg.keyVaultRefs = getUnversionedKeyVaultRefs(keyVaultRefs)
-	azappcfg.kvETags = settingsResponse.pageETags
+	azappcfg.kvWatchers = settingsResponse.pageWatchers
 
 	return nil
 }
@@ -600,7 +644,7 @@ func (azappcfg *AzureAppConfiguration) loadFeatureFlags(ctx context.Context, set
 		},
 	}
 
-	azappcfg.ffETags = settingsResponse.pageETags
+	azappcfg.ffWatchers = settingsResponse.pageWatchers
 	azappcfg.featureFlags = ffSettings
 
 	return nil
@@ -948,10 +992,10 @@ func normalizedWatchedSettings(s []WatchedSetting) []WatchedSetting {
 func (azappcfg *AzureAppConfiguration) newKeyValueRefreshClient(client *azappconfig.Client) refreshClient {
 	var monitor eTagsClient
 	if azappcfg.watchAll {
-		monitor = &pageETagsClient{
+		monitor = &pageWatcherClient{
 			client:         client,
 			tracingOptions: azappcfg.tracingOptions,
-			pageETags:      azappcfg.kvETags,
+			pageWatchers:   azappcfg.kvWatchers,
 		}
 	} else {
 		monitor = &watchedSettingClient{
@@ -983,10 +1027,10 @@ func (azappcfg *AzureAppConfiguration) newFeatureFlagRefreshClient(client *azapp
 			client:         client,
 			tracingOptions: azappcfg.tracingOptions,
 		},
-		monitor: &pageETagsClient{
+		monitor: &pageWatcherClient{
 			client:         client,
 			tracingOptions: azappcfg.tracingOptions,
-			pageETags:      azappcfg.ffETags,
+			pageWatchers:   azappcfg.ffWatchers,
 		},
 	}
 }
