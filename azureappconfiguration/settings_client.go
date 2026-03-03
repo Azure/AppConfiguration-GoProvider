@@ -50,6 +50,9 @@ type eTagsClient interface {
 	checkIfETagChanged(ctx context.Context) (bool, error)
 }
 
+// snapshotSettingsLoader is a function type that loads settings from a snapshot by name.
+type snapshotSettingsLoader func(ctx context.Context, snapshotName string) ([]azappconfig.Setting, error)
+
 type refreshClient struct {
 	loader    settingsClient
 	monitor   eTagsClient
@@ -203,6 +206,10 @@ func loadSnapshotSettings(ctx context.Context, client *azappconfig.Client, snaps
 	settings := make([]azappconfig.Setting, 0)
 	snapshot, err := client.GetSnapshot(ctx, snapshotName, nil)
 	if err != nil {
+		var respErr *azcore.ResponseError
+		if errors.As(err, &respErr) && respErr.StatusCode == 404 {
+			return settings, nil // treat non-existing snapshot as empty
+		}
 		return nil, err
 	}
 
