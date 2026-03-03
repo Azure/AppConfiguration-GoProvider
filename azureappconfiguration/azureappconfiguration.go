@@ -385,6 +385,7 @@ func (azappcfg *AzureAppConfiguration) loadKeyValues(ctx context.Context, settin
 	var useAIConfiguration, useAIChatCompletionConfiguration bool
 	kvSettings := make(map[string]any, len(settingsResponse.settings))
 	keyVaultRefs := make(map[string]string)
+	snapshotRefs := make(map[string]string)
 	for trimmedKey, setting := range rawSettings {
 		if setting.ContentType == nil || setting.Value == nil {
 			kvSettings[trimmedKey] = setting.Value
@@ -396,6 +397,9 @@ func (azappcfg *AzureAppConfiguration) loadKeyValues(ctx context.Context, settin
 			continue // ignore feature flag while getting key value settings
 		case secretReferenceContentType:
 			keyVaultRefs[trimmedKey] = *setting.Value
+		case snapshotReferenceContentType:
+			snapshotRefs[trimmedKey] = *setting.Value
+			azappcfg.tracingOptions.UseSnapshotReference = true
 		default:
 			if isJsonContentType(setting.ContentType) {
 				var v any
@@ -424,6 +428,21 @@ func (azappcfg *AzureAppConfiguration) loadKeyValues(ctx context.Context, settin
 	azappcfg.tracingOptions.UseAIConfiguration = useAIConfiguration
 	azappcfg.tracingOptions.UseAIChatCompletionConfiguration = useAIChatCompletionConfiguration
 
+	if len(snapshotRefs) > 0 {
+		var loadSnapshot snapshotSettingsLoader
+		if client, ok := settingsClient.(*selectorSettingsClient); ok {
+			loadSnapshot = func(ctx context.Context, snapshotName string) ([]azappconfig.Setting, error) {
+				return loadSnapshotSettings(ctx, client.client, snapshotName)
+			}
+		}
+
+		if loadSnapshot != nil {
+			if err := azappcfg.loadSettingsFromSnapshotRefs(ctx, loadSnapshot, snapshotRefs, kvSettings, keyVaultRefs); err != nil {
+				return err
+			}
+		}
+	}
+
 	secrets, err := azappcfg.loadKeyVaultSecrets(ctx, keyVaultRefs)
 	if err != nil {
 		return fmt.Errorf("failed to load Key Vault secrets: %w", err)
@@ -433,6 +452,68 @@ func (azappcfg *AzureAppConfiguration) loadKeyValues(ctx context.Context, settin
 	azappcfg.keyValues = kvSettings
 	azappcfg.keyVaultRefs = getUnversionedKeyVaultRefs(keyVaultRefs)
 	azappcfg.kvETags = settingsResponse.pageETags
+
+	return nil
+}
+
+func (azappcfg *AzureAppConfiguration) loadSettingsFromSnapshotRefs(ctx context.Context, loadSnapshot snapshotSettingsLoader, snapshotRefs map[string]string, kvSettings map[string]any, keyVaultRefs map[string]string) error {
+	for key, snapshotRef := range snapshotRefs {
+		// Parse the snapshot reference
+		snapshotName, err := parseSnapshotReference(snapshotRef)
+		if err != nil {
+			return fmt.Errorf("invalid format for Snapshot reference setting %s: %w", key, err)
+		}
+
+		// Load the snapshot settings
+		settingsFromSnapshot, err := loadSnapshot(ctx, snapshotName)
+		if err != nil {
+			return fmt.Errorf("failed to load snapshot settings: key=%s, error=%w", key, err)
+		}
+
+		for _, setting := range settingsFromSnapshot {
+			if setting.Key == nil {
+				continue
+			}
+
+			trimmedKey := azappcfg.trimPrefix(*setting.Key)
+			if len(trimmedKey) == 0 {
+				log.Printf("Key of the setting '%s' is trimmed to the empty string, just ignore it", *setting.Key)
+				continue
+			}
+
+			if setting.ContentType == nil || setting.Value == nil {
+				kvSettings[trimmedKey] = setting.Value
+				continue
+			}
+
+			contentType := strings.TrimSpace(strings.ToLower(*setting.ContentType))
+			if contentType == featureFlagContentType {
+				continue
+			}
+
+			if contentType == secretReferenceContentType {
+				keyVaultRefs[trimmedKey] = *setting.Value
+				continue
+			}
+
+			// Handle JSON content types (similar to regular key-value loading)
+			if isJsonContentType(setting.ContentType) {
+				var v any
+				if err := json.Unmarshal([]byte(*setting.Value), &v); err != nil {
+					// If the value is not valid JSON, try to remove comments and parse again
+					if err := json.Unmarshal(jsonc.StripComments([]byte(*setting.Value)), &v); err != nil {
+						// If still invalid, log the error and treat it as a plain string
+						log.Printf("Failed to unmarshal JSON value from snapshot: key=%s, error=%s", *setting.Key, err.Error())
+						kvSettings[trimmedKey] = setting.Value
+						continue
+					}
+				}
+				kvSettings[trimmedKey] = v
+			} else {
+				kvSettings[trimmedKey] = setting.Value
+			}
+		}
+	}
 
 	return nil
 }
@@ -1018,4 +1099,21 @@ func isFailoverable(err error) bool {
 	}
 
 	return false
+}
+
+// "{\"snapshot_name\":\"referenced-snapshot\"}"
+func parseSnapshotReference(ref string) (string, error) {
+	var snapshotRef struct {
+		SnapshotName string `json:"snapshot_name"`
+	}
+
+	if err := json.Unmarshal([]byte(ref), &snapshotRef); err != nil {
+		return "", fmt.Errorf("failed to parse snapshot reference: %w", err)
+	}
+
+	if snapshotRef.SnapshotName == "" {
+		return "", fmt.Errorf("snapshot_name is empty in snapshot reference")
+	}
+
+	return snapshotRef.SnapshotName, nil
 }
