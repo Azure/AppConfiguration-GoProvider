@@ -145,12 +145,70 @@ func TestCreateCorrelationContextHeader(t *testing.T) {
 		assert.Contains(t, features, AIChatCompletionConfigurationTag)
 	})
 
+	t.Run("with snapshot reference", func(t *testing.T) {
+		ctx := context.Background()
+		options := Options{
+			UseSnapshotReference: true,
+		}
+
+		header := CreateCorrelationContextHeader(ctx, options)
+
+		corrContext := header.Get(CorrelationContextHeader)
+		assert.Contains(t, corrContext, FeaturesKey+"="+SnapshotReferenceTag)
+	})
+
+	t.Run("with snapshot reference not set", func(t *testing.T) {
+		ctx := context.Background()
+		options := Options{
+			UseSnapshotReference: false,
+		}
+
+		header := CreateCorrelationContextHeader(ctx, options)
+
+		corrContext := header.Get(CorrelationContextHeader)
+		assert.NotContains(t, corrContext, SnapshotReferenceTag)
+	})
+
+	t.Run("with snapshot reference and other features", func(t *testing.T) {
+		ctx := context.Background()
+		options := Options{
+			UseAIConfiguration:   true,
+			UseSnapshotReference: true,
+		}
+
+		header := CreateCorrelationContextHeader(ctx, options)
+
+		corrContext := header.Get(CorrelationContextHeader)
+		assert.Contains(t, corrContext, FeaturesKey+"=")
+
+		// Extract the Features part
+		parts := strings.Split(corrContext, DelimiterComma)
+		var featuresPart string
+		for _, part := range parts {
+			if strings.HasPrefix(part, FeaturesKey+"=") {
+				featuresPart = part
+				break
+			}
+		}
+
+		// Check both tags are in the features part
+		assert.Contains(t, featuresPart, AIConfigurationTag)
+		assert.Contains(t, featuresPart, SnapshotReferenceTag)
+
+		// Check the delimiter is correct
+		features := strings.Split(strings.TrimPrefix(featuresPart, FeaturesKey+"="), DelimiterPlus)
+		assert.Len(t, features, 2)
+		assert.Contains(t, features, AIConfigurationTag)
+		assert.Contains(t, features, SnapshotReferenceTag)
+	})
+
 	t.Run("with all options", func(t *testing.T) {
 		options := Options{
 			Host:                             HostTypeAzureFunction,
 			KeyVaultConfigured:               true,
 			UseAIConfiguration:               true,
 			UseAIChatCompletionConfiguration: true,
+			UseSnapshotReference:             true,
 		}
 
 		header := CreateCorrelationContextHeader(context.Background(), options)
@@ -172,9 +230,10 @@ func TestCreateCorrelationContextHeader(t *testing.T) {
 			}
 		}
 
-		// Check both AI tags are in the features part
+		// Check all feature tags are in the features part
 		assert.Contains(t, featuresPart, AIConfigurationTag)
 		assert.Contains(t, featuresPart, AIChatCompletionConfigurationTag)
+		assert.Contains(t, featuresPart, SnapshotReferenceTag)
 
 		// Verify the header format
 		assert.Equal(t, 4, strings.Count(corrContext, DelimiterComma)+1, "Should have 4 parts")

@@ -467,7 +467,7 @@ func (azappcfg *AzureAppConfiguration) loadSettingsFromSnapshotRefs(ctx context.
 		// Load the snapshot settings
 		settingsFromSnapshot, err := loadSnapshot(ctx, snapshotName)
 		if err != nil {
-			return fmt.Errorf("failed to load snapshot settings: key=%s, error=%s", key, err.Error())
+			return fmt.Errorf("failed to load snapshot settings: key=%s, error=%w", key, err)
 		}
 
 		for _, setting := range settingsFromSnapshot {
@@ -486,11 +486,12 @@ func (azappcfg *AzureAppConfiguration) loadSettingsFromSnapshotRefs(ctx context.
 				continue
 			}
 
-			if *setting.ContentType == featureFlagContentType {
+			contentType := strings.TrimSpace(strings.ToLower(*setting.ContentType))
+			if contentType == featureFlagContentType {
 				continue
 			}
 
-			if *setting.ContentType == secretReferenceContentType {
+			if contentType == secretReferenceContentType {
 				keyVaultRefs[trimmedKey] = *setting.Value
 				continue
 			}
