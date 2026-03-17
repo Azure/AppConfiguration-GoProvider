@@ -457,6 +457,7 @@ func (azappcfg *AzureAppConfiguration) loadKeyValues(ctx context.Context, settin
 }
 
 func (azappcfg *AzureAppConfiguration) loadSettingsFromSnapshotRefs(ctx context.Context, loadSnapshot snapshotSettingsLoader, snapshotRefs map[string]string, kvSettings map[string]any, keyVaultRefs map[string]string) error {
+	var useAIConfiguration, useAIChatCompletionConfiguration bool
 	for key, snapshotRef := range snapshotRefs {
 		// Parse the snapshot reference
 		snapshotName, err := parseSnapshotReference(snapshotRef)
@@ -509,11 +510,20 @@ func (azappcfg *AzureAppConfiguration) loadSettingsFromSnapshotRefs(ctx context.
 					}
 				}
 				kvSettings[trimmedKey] = v
+				if isAIConfigurationContentType(setting.ContentType) {
+					useAIConfiguration = true
+				}
+				if isAIChatCompletionContentType(setting.ContentType) {
+					useAIChatCompletionConfiguration = true
+				}
 			} else {
 				kvSettings[trimmedKey] = setting.Value
 			}
 		}
 	}
+
+	azappcfg.tracingOptions.UseAIConfiguration = useAIConfiguration
+	azappcfg.tracingOptions.UseAIChatCompletionConfiguration = useAIChatCompletionConfiguration
 
 	return nil
 }
