@@ -23,10 +23,10 @@ Follow these steps **in order**. Each step depends on the previous one completin
 ### Step 1 — Create Version Bump PR
 
 Use the GitHub agent to create a pull request:
-- **Source branch**: `release/v<version>` (e.g. `release/v1.1.0`)
-- **Target branch**: `main`
+- **Source branch**: A new branch checked out from `release/v<version>` (e.g. `version-bump/v<version>`)
+- **Target branch**: `release/v<version>`
 - **Change**: Update `moduleVersion` in `azureappconfiguration/version.go` to the new version
-- **PR title**: `Release v<version>`
+- **PR title**: `Version bump v<version>`
 
 Wait for the PR to be created, then inform the user to review and merge it.
 
@@ -77,7 +77,7 @@ GOPROXY=proxy.golang.org go list -m github.com/Azure/AppConfiguration-GoProvider
 Use the GitHub agent to create a pull request to merge the release branch back to main:
 - **Source branch**: `release/v<version>`
 - **Target branch**: `main`
-- **PR title**: `Merge release/v<version> back to main`
+- **PR title**: `Merge release/v<version> to main`
 
 ## Notes
 
