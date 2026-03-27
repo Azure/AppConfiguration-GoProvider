@@ -13,8 +13,10 @@ argument-hint: "Target version number, e.g. 1.1.0"
 
 ## Prerequisites
 
-- You must be on the repository: `AppConfiguration-GoProvider`
-- You need appropriate permissions to push tags and create PRs
+- GitHub CLI (`gh`) ≥ 2.86.0
+- Authenticated via `gh auth login` with `repo` and `read:org` scopes
+- GitHub Copilot agent enabled for the repository
+- Write access to `Azure/AppConfiguration-GoProvider`
 
 ## Procedure
 
@@ -22,13 +24,25 @@ Follow these steps **in order**. Each step depends on the previous one completin
 
 ### Step 1 — Create Version Bump PR
 
-Use the GitHub agent to create a pull request:
-- **Source branch**: A new branch checked out from `release/v<version>` (e.g. `version-bump/v<version>`)
-- **Target branch**: `release/v<version>`
-- **Change**: Update `moduleVersion` in `azureappconfiguration/version.go` to the new version
-- **PR title**: `Version bump v<version>`
+Use `gh agent-task create` to create a version bump PR:
 
-Wait for the PR to be created, then inform the user to review and merge it.
+```bash
+gh agent-task create \
+  "Please create a version bump PR for version <version>. \
+  Checkout a new branch from release/v<version> (e.g. version-bump/v<version>), \
+  update the moduleVersion in azureappconfiguration/version.go to <version>, \
+  and open a PR targeting the release/v<version> branch with title 'Version bump v<version>'." \
+  --repo Azure/AppConfiguration-GoProvider \
+  --base release/v<version>
+```
+
+After launching the agent task, monitor its progress:
+
+```bash
+gh agent-task list --repo Azure/AppConfiguration-GoProvider
+```
+
+Once the agent task completes and the PR is created, inform the user to review and merge it.
 
 > **Pause here.** Do not proceed until the user confirms the version bump PR has been merged.
 
@@ -74,10 +88,20 @@ GOPROXY=proxy.golang.org go list -m github.com/Azure/AppConfiguration-GoProvider
 
 ### Step 5 — Create Merge-Back PR
 
-Use the GitHub agent to create a pull request to merge the release branch back to main:
-- **Source branch**: `release/v<version>`
-- **Target branch**: `main`
-- **PR title**: `Merge release/v<version> to main`
+Use `gh agent-task create` to create a pull request to merge the release branch back to main:
+
+```bash
+gh agent-task create \
+  "Please create a PR to merge release/v<version> back to main with title 'Merge release/v<version> to main'." \
+  --repo Azure/AppConfiguration-GoProvider \
+  --base main
+```
+
+Monitor the agent task until the PR is created:
+
+```bash
+gh agent-task list --repo Azure/AppConfiguration-GoProvider
+```
 
 ## Notes
 
