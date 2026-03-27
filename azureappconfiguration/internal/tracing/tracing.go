@@ -43,6 +43,7 @@ const (
 	FailoverRequestTag               = "Failover"
 	ReplicaCountKey                  = "ReplicaCount"
 	LoadBalancingEnabledTag          = "LB"
+	SnapshotReferenceTag             = "SnapshotRef"
 
 	// Feature flag usage tracing
 	FMGoVerEnv           = "MS_FEATURE_MANAGEMENT_GO_VERSION"
@@ -74,6 +75,7 @@ type Options struct {
 	KeyVaultRefreshConfigured        bool
 	UseAIConfiguration               bool
 	UseAIChatCompletionConfiguration bool
+	UseSnapshotReference             bool
 	IsFailoverRequest                bool
 	ReplicaCount                     int
 	IsLoadBalancingEnabled           bool
@@ -141,6 +143,10 @@ func CreateCorrelationContextHeader(ctx context.Context, options Options) http.H
 
 	if options.IsLoadBalancingEnabled {
 		features = append(features, LoadBalancingEnabledTag)
+	}
+
+	if options.UseSnapshotReference {
+		features = append(features, SnapshotReferenceTag)
 	}
 
 	if len(features) > 0 {
