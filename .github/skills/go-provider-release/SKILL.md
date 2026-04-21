@@ -18,13 +18,49 @@ argument-hint: "Target version number, e.g. 1.1.0"
 - GitHub Copilot agent enabled for the repository
 - Write access to `Azure/AppConfiguration-GoProvider`
 
+## Cycle: Create → Monitor Task → Monitor PR
+
+Every PR in this release follows the same three-phase cycle. The steps below reference this cycle.
+
+### A. Create the agent task
+
+Create one agent task for the next PR in the sequence. Each command returns a URL in the format:
+
+`https://github.com/Azure/AppConfiguration-GoProvider/pull/<pr-id>/agent-sessions/<agent-session-id>`
+
+### B. Monitor the agent task
+
+Extract the `agent-session-id` from the URL returned in step A, then poll:
+
+```bash
+gh agent-task view <agent-session-id>
+```
+
+Keep polling until the session state is `Ready for review`. Print the PR URL for reference.
+
+### C. Monitor the PR until merged
+
+Poll the PR every 10 minutes. Stop monitoring if:
+
+- PR state is `MERGED` → proceed to the next step (or finish if this was the last PR).
+- PR state is `CLOSED` or `Abandoned` → report and **stop the release**.
+- 24 hours elapsed → report current status and **stop the release**.
+
+```bash
+gh pr view <pr-id> --repo Azure/AppConfiguration-GoProvider --json state --jq '.state'
+```
+
+---
+
 ## Procedure
 
 Follow these steps **in order**. Each step depends on the previous one completing successfully.
 
 ### Step 1 — Create Version Bump PR
 
-Use `gh agent-task create` to create a version bump PR:
+Use the **Create → Monitor Task → Monitor PR** cycle:
+
+**A. Create the agent task:**
 
 ```bash
 gh agent-task create \
@@ -36,35 +72,26 @@ gh agent-task create \
   --base release/v<version>
 ```
 
-After launching the agent task, monitor its progress:
+**B. Monitor the agent task** until session state is `Ready for review`.
 
-```bash
-gh agent-task list --repo Azure/AppConfiguration-GoProvider
-```
-
-Once the agent task completes and the PR is created, inform the user to review and merge it.
-
-> **Pause here.** Do not proceed until the user confirms the version bump PR has been merged.
+**C. Monitor the PR** until it is merged. Do not proceed until the PR state is `MERGED`.
 
 ### Step 2 — Tag the Release
 
-After the version bump PR is merged, create a git tag at the HEAD of the release branch:
+After the version bump PR is merged, fetch the release branch and create a git tag at the HEAD:
 
+```bash
+git fetch origin release/v<version>
+git tag azureappconfiguration/v<version> origin/release/v<version>
 ```
-git tag azureappconfiguration/v<version>
-```
-
-Example: `git tag azureappconfiguration/v1.1.0`
 
 ### Step 3 — Push the Tag
 
 Push the tag to the remote:
 
-```
+```bash
 git push origin azureappconfiguration/v<version>
 ```
-
-Example: `git push origin azureappconfiguration/v1.1.0`
 
 ### Step 4 — Publish to Go Module Proxy
 
@@ -82,13 +109,15 @@ Example: `git push origin azureappconfiguration/v1.1.0`
 
 After user confirmation, run:
 
-```
+```bash
 GOPROXY=proxy.golang.org go list -m github.com/Azure/AppConfiguration-GoProvider/azureappconfiguration@v<version>
 ```
 
 ### Step 5 — Create Merge-Back PR
 
-Use `gh agent-task create` to create a pull request to merge the release branch back to main:
+Use the **Create → Monitor Task → Monitor PR** cycle:
+
+**A. Create the agent task:**
 
 ```bash
 gh agent-task create \
@@ -97,11 +126,9 @@ gh agent-task create \
   --base main
 ```
 
-Monitor the agent task until the PR is created:
+**B. Monitor the agent task** until session state is `Ready for review`.
 
-```bash
-gh agent-task list --repo Azure/AppConfiguration-GoProvider
-```
+**C. Monitor the PR** until it is merged. The release is complete once this PR is merged.
 
 ## Notes
 
