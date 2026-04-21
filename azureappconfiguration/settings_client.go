@@ -9,6 +9,8 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"net/http"
+	"time"
 
 	"github.com/Azure/AppConfiguration-GoProvider/azureappconfiguration/internal/tracing"
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore"
@@ -17,10 +19,15 @@ import (
 	"github.com/Azure/azure-sdk-for-go/sdk/data/azappconfig/v2"
 )
 
+type settingWatcher struct {
+	eTag                   *azcore.ETag
+	lastServerResponseTime string
+}
+
 type settingsResponse struct {
 	settings     []azappconfig.Setting
 	watchedETags map[WatchedSetting]*azcore.ETag
-	pageETags    map[comparableSelector][]*azcore.ETag
+	pageWatchers map[comparableSelector][]settingWatcher
 }
 
 type selectorSettingsClient struct {
@@ -36,8 +43,8 @@ type watchedSettingClient struct {
 	tracingOptions  tracing.Options
 }
 
-type pageETagsClient struct {
-	pageETags      map[comparableSelector][]*azcore.ETag
+type pageWatcherClient struct {
+	pageWatchers   map[comparableSelector][]settingWatcher
 	client         *azappconfig.Client
 	tracingOptions tracing.Options
 }
@@ -64,8 +71,11 @@ func (s *selectorSettingsClient) getSettings(ctx context.Context) (*settingsResp
 		ctx = policy.WithHTTPHeader(ctx, tracing.CreateCorrelationContextHeader(ctx, s.tracingOptions))
 	}
 
+	// Capture the raw HTTP response
+	var httpResponse *http.Response
+	ctx = policy.WithCaptureResponse(ctx, &httpResponse)
 	settings := make([]azappconfig.Setting, 0)
-	pageETags := make(map[comparableSelector][]*azcore.ETag)
+	pageWatchers := make(map[comparableSelector][]settingWatcher)
 	for _, filter := range s.selectors {
 		if filter.SnapshotName == "" {
 			selector := azappconfig.SettingSelector{
@@ -76,18 +86,24 @@ func (s *selectorSettingsClient) getSettings(ctx context.Context) (*settingsResp
 			}
 
 			pager := s.client.NewListSettingsPager(selector, nil)
-			eTags := make([]*azcore.ETag, 0)
+			watchers := make([]settingWatcher, 0)
 			for pager.More() {
 				page, err := pager.NextPage(ctx)
 				if err != nil {
 					return nil, err
 				} else if page.Settings != nil {
 					settings = append(settings, page.Settings...)
-					eTags = append(eTags, page.ETag)
+					watchers = append(watchers, settingWatcher{
+						eTag: page.ETag,
+					})
+
+					if s.tracingOptions.AfdUsed && httpResponse != nil {
+						watchers[len(watchers)-1].lastServerResponseTime = httpResponse.Header.Get("X-Ms-Date")
+					}
 				}
 			}
 
-			pageETags[filter.comparableKey()] = eTags
+			pageWatchers[filter.comparableKey()] = watchers
 		} else {
 			snapshotSettings, err := loadSnapshotSettings(ctx, s.client, filter.SnapshotName)
 			if err != nil {
@@ -98,8 +114,8 @@ func (s *selectorSettingsClient) getSettings(ctx context.Context) (*settingsResp
 	}
 
 	return &settingsResponse{
-		settings:  settings,
-		pageETags: pageETags,
+		settings:     settings,
+		pageWatchers: pageWatchers,
 	}, nil
 }
 
@@ -158,8 +174,12 @@ func (c *watchedSettingClient) checkIfETagChanged(ctx context.Context) (bool, er
 	return false, nil
 }
 
-func (c *pageETagsClient) checkIfETagChanged(ctx context.Context) (bool, error) {
-	for selector, pageETags := range c.pageETags {
+func (c *pageWatcherClient) checkIfETagChanged(ctx context.Context) (bool, error) {
+	// Capture the raw HTTP response
+	var httpResponse *http.Response
+	ctx = policy.WithCaptureResponse(ctx, &httpResponse)
+
+	for selector, pageWatchers := range c.pageWatchers {
 		s := azappconfig.SettingSelector{
 			KeyFilter:   to.Ptr(selector.KeyFilter),
 			LabelFilter: to.Ptr(selector.LabelFilter),
@@ -173,28 +193,41 @@ func (c *pageETagsClient) checkIfETagChanged(ctx context.Context) (bool, error) 
 		}
 
 		conditions := make([]azcore.MatchConditions, 0)
-		for _, eTag := range pageETags {
-			conditions = append(conditions, azcore.MatchConditions{IfNoneMatch: eTag})
+		for _, watcher := range pageWatchers {
+			conditions = append(conditions, azcore.MatchConditions{IfNoneMatch: watcher.eTag})
 		}
 
-		pager := c.client.NewListSettingsPager(s, &azappconfig.ListSettingsOptions{
-			MatchConditions: conditions,
-		})
+		listOps := &azappconfig.ListSettingsOptions{}
+		if !c.tracingOptions.AfdUsed {
+			listOps.MatchConditions = conditions
+		}
+
+		pager := c.client.NewListSettingsPager(s, listOps)
 
 		pageCount := 0
 		for pager.More() {
 			pageCount++
-			page, err := pager.NextPage(context.Background())
+			page, err := pager.NextPage(ctx)
 			if err != nil {
 				return false, err
 			}
 			// ETag changed
 			if page.ETag != nil {
-				return true, nil
+				if !c.tracingOptions.AfdUsed {
+					return true, nil
+				}
+
+				if httpResponse != nil {
+					serverResponseTime, _ := time.Parse(time.RFC1123, httpResponse.Header.Get("X-Ms-Date"))
+					lastResponseTime, _ := time.Parse(time.RFC1123, pageWatchers[pageCount-1].lastServerResponseTime)
+					if lastResponseTime.Before(serverResponseTime) {
+						return true, nil
+					}
+				}
 			}
 		}
 
-		if pageCount != len(pageETags) {
+		if pageCount != len(pageWatchers) {
 			return true, nil
 		}
 	}
