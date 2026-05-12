@@ -197,12 +197,12 @@ func (c *pageWatcherClient) checkIfETagChanged(ctx context.Context) (bool, error
 			conditions = append(conditions, azcore.MatchConditions{IfNoneMatch: watcher.eTag})
 		}
 
-		listOps := &azappconfig.ListSettingsOptions{}
+		checkops := &azappconfig.CheckSettingsOptions{}
 		if !c.tracingOptions.AfdUsed {
-			listOps.MatchConditions = conditions
+			checkops.MatchConditions = conditions
 		}
 
-		pager := c.client.NewListSettingsPager(s, listOps)
+		pager := c.client.NewCheckSettingsPager(s, checkops)
 
 		pageCount := 0
 		for pager.More() {

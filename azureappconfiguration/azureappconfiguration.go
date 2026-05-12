@@ -157,7 +157,7 @@ func Load(ctx context.Context, authentication AuthenticationOptions, options *Op
 	return azappcfg, nil
 }
 
-func (azappcfg *AzureAppConfiguration) LoadFromAzureFrontDoor(ctx context.Context, endpoint string, options *Options) (*AzureAppConfiguration, error) {
+func LoadFromAzureFrontDoor(ctx context.Context, endpoint string, options *Options) (*AzureAppConfiguration, error) {
 	if options == nil {
 		options = &Options{}
 	}
