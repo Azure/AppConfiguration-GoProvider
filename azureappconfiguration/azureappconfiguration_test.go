@@ -30,6 +30,17 @@ func (m *mockSettingsClient) getSettings(ctx context.Context) (*settingsResponse
 	return args.Get(0).(*settingsResponse), args.Error(1)
 }
 
+// newEmptyEnhancedFFClient returns a settings client stub that yields no enhanced feature
+// flags, used by tests that only exercise classic feature flag loading.
+func newEmptyEnhancedFFClient() *mockSettingsClient {
+	m := new(mockSettingsClient)
+	m.On("getSettings", mock.Anything).Return(&settingsResponse{
+		featureFlags: []azappconfig.FeatureFlag{},
+		pageETags:    map[comparableSelector][]*azcore.ETag{},
+	}, nil)
+	return m
+}
+
 func TestLoadKeyValues_Success(t *testing.T) {
 	ctx := context.Background()
 	mockClient := new(mockSettingsClient)
@@ -45,8 +56,8 @@ func TestLoadKeyValues_Success(t *testing.T) {
 	mockClient.On("getSettings", ctx).Return(mockResponse, nil)
 
 	azappcfg := &AzureAppConfiguration{
-		clientManager: &configurationClientManager{
-			staticClient: &configurationClientWrapper{client: &azappconfig.Client{}},
+		clientManager: &appConfigClientManager{
+			staticClient: &appConfigClientWrapper{client: &appConfigurationClient{}},
 		},
 		kvSelectors: deduplicateSelectors([]Selector{}),
 		keyValues:   make(map[string]any),
@@ -76,8 +87,8 @@ func TestLoadKeyValues_WithKeyVaultReferences(t *testing.T) {
 	mockSecretResolver.On("ResolveSecret", ctx, *expectedURL).Return("resolved-secret", nil)
 
 	azappcfg := &AzureAppConfiguration{
-		clientManager: &configurationClientManager{
-			staticClient: &configurationClientWrapper{client: nil},
+		clientManager: &appConfigClientManager{
+			staticClient: &appConfigClientWrapper{client: nil},
 		},
 		kvSelectors: deduplicateSelectors([]Selector{}),
 		keyValues:   make(map[string]any),
@@ -134,14 +145,14 @@ func TestLoadFeatureFlags_Success(t *testing.T) {
 	mockClient.On("getSettings", ctx).Return(mockResponse, nil)
 
 	azappcfg := &AzureAppConfiguration{
-		clientManager: &configurationClientManager{
-			staticClient: &configurationClientWrapper{client: &azappconfig.Client{}},
+		clientManager: &appConfigClientManager{
+			staticClient: &appConfigClientWrapper{client: &appConfigurationClient{}},
 		},
 		ffSelectors:  getFeatureFlagSelectors([]Selector{}),
 		featureFlags: make(map[string]any),
 	}
 
-	err := azappcfg.loadFeatureFlags(ctx, mockClient)
+	err := azappcfg.loadFeatureFlags(ctx, mockClient, newEmptyEnhancedFFClient())
 	assert.NoError(t, err)
 	// Verify feature flag structure is created correctly
 	assert.Contains(t, azappcfg.featureFlags, featureManagementSectionKey)
@@ -205,8 +216,8 @@ func TestLoadKeyValues_WithTrimPrefix(t *testing.T) {
 	mockClient.On("getSettings", ctx).Return(mockResponse, nil)
 
 	azappcfg := &AzureAppConfiguration{
-		clientManager: &configurationClientManager{
-			staticClient: &configurationClientWrapper{client: &azappconfig.Client{}},
+		clientManager: &appConfigClientManager{
+			staticClient: &appConfigClientWrapper{client: &appConfigurationClient{}},
 		},
 		kvSelectors:  deduplicateSelectors([]Selector{}),
 		trimPrefixes: []string{"prefix:", "other:"},
@@ -233,8 +244,8 @@ func TestLoadKeyValues_EmptyKeyAfterTrim(t *testing.T) {
 	mockClient.On("getSettings", ctx).Return(mockResponse, nil)
 
 	azappcfg := &AzureAppConfiguration{
-		clientManager: &configurationClientManager{
-			staticClient: &configurationClientWrapper{client: &azappconfig.Client{}},
+		clientManager: &appConfigClientManager{
+			staticClient: &appConfigClientWrapper{client: &appConfigurationClient{}},
 		},
 		kvSelectors:  deduplicateSelectors([]Selector{}),
 		trimPrefixes: []string{"prefix:"},
@@ -261,8 +272,8 @@ func TestLoadKeyValues_InvalidJson(t *testing.T) {
 	mockClient.On("getSettings", ctx).Return(mockResponse, nil)
 
 	azappcfg := &AzureAppConfiguration{
-		clientManager: &configurationClientManager{
-			staticClient: &configurationClientWrapper{client: &azappconfig.Client{}},
+		clientManager: &appConfigClientManager{
+			staticClient: &appConfigClientWrapper{client: &appConfigurationClient{}},
 		},
 		kvSelectors: deduplicateSelectors([]Selector{}),
 		keyValues:   make(map[string]any),
@@ -785,8 +796,8 @@ func TestLoadKeyValues_WithConcurrentKeyVaultReferences(t *testing.T) {
 
 	// Create app configuration
 	azappcfg := &AzureAppConfiguration{
-		clientManager: &configurationClientManager{
-			staticClient: &configurationClientWrapper{client: nil},
+		clientManager: &appConfigClientManager{
+			staticClient: &appConfigClientWrapper{client: nil},
 		},
 		kvSelectors: deduplicateSelectors([]Selector{}),
 		keyValues:   make(map[string]any),
@@ -867,8 +878,8 @@ func TestLoadKeyValues_WithAIContentTypes(t *testing.T) {
 
 	// Create the app configuration with tracing enabled
 	azappcfg := &AzureAppConfiguration{
-		clientManager: &configurationClientManager{
-			staticClient: &configurationClientWrapper{client: &azappconfig.Client{}},
+		clientManager: &appConfigClientManager{
+			staticClient: &appConfigClientWrapper{client: &appConfigurationClient{}},
 		},
 		kvSelectors: deduplicateSelectors([]Selector{}),
 		keyValues:   make(map[string]any),
@@ -916,8 +927,8 @@ func TestCorrelationContextHeader(t *testing.T) {
 	}
 
 	azappcfg := &AzureAppConfiguration{
-		clientManager: &configurationClientManager{
-			staticClient: &configurationClientWrapper{client: &azappconfig.Client{}},
+		clientManager: &appConfigClientManager{
+			staticClient: &appConfigClientWrapper{client: &appConfigurationClient{}},
 		},
 		kvSelectors:    deduplicateSelectors([]Selector{}),
 		keyValues:      make(map[string]any),
@@ -1558,8 +1569,8 @@ func TestLoadFeatureFlags_TracingUpdated(t *testing.T) {
 	}
 
 	azappcfg := &AzureAppConfiguration{
-		clientManager: &configurationClientManager{
-			staticClient: &configurationClientWrapper{client: &azappconfig.Client{}},
+		clientManager: &appConfigClientManager{
+			staticClient: &appConfigClientWrapper{client: &appConfigurationClient{}},
 		},
 		ffSelectors:    getFeatureFlagSelectors([]Selector{}),
 		featureFlags:   make(map[string]any),
@@ -1567,7 +1578,7 @@ func TestLoadFeatureFlags_TracingUpdated(t *testing.T) {
 	}
 
 	// Call the method under test
-	err := azappcfg.loadFeatureFlags(ctx, mockClient)
+	err := azappcfg.loadFeatureFlags(ctx, mockClient, newEmptyEnhancedFFClient())
 	assert.NoError(t, err)
 
 	// Verify tracing information was properly updated
@@ -1646,8 +1657,8 @@ func TestLoadKeyValues_WithTagFilter(t *testing.T) {
 
 	// Test with single tag filter
 	azappcfg := &AzureAppConfiguration{
-		clientManager: &configurationClientManager{
-			staticClient: &configurationClientWrapper{client: &azappconfig.Client{}},
+		clientManager: &appConfigClientManager{
+			staticClient: &appConfigClientWrapper{client: &appConfigurationClient{}},
 		},
 		kvSelectors: []Selector{
 			{
@@ -1702,8 +1713,8 @@ func TestLoadKeyValues_WithMultipleTagFilters(t *testing.T) {
 
 	// Test with multiple tag filters (must match ALL)
 	azappcfg := &AzureAppConfiguration{
-		clientManager: &configurationClientManager{
-			staticClient: &configurationClientWrapper{client: &azappconfig.Client{}},
+		clientManager: &appConfigClientManager{
+			staticClient: &appConfigClientWrapper{client: &appConfigurationClient{}},
 		},
 		kvSelectors: []Selector{
 			{

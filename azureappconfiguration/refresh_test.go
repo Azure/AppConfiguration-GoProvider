@@ -653,8 +653,10 @@ func TestRefreshFeatureFlags_NoChanges(t *testing.T) {
 	mockLoader := &mockKvRefreshClient{}
 
 	mockClient := refreshClient{
-		loader:  mockLoader,
-		monitor: mockMonitor,
+		loader:       mockLoader,
+		monitor:      mockMonitor,
+		enhFFLoader:  &mockKvRefreshClient{},
+		enhFFMonitor: &mockETagsClient{changed: false},
 	}
 
 	// Setup provider with feature flags refresh timer
@@ -696,8 +698,10 @@ func TestRefreshFeatureFlags_ChangesDetected(t *testing.T) {
 	mockLoader := &mockKvRefreshClient{settings: mockSettings}
 
 	mockClient := refreshClient{
-		loader:  mockLoader,
-		monitor: mockMonitor,
+		loader:       mockLoader,
+		monitor:      mockMonitor,
+		enhFFLoader:  &mockKvRefreshClient{},
+		enhFFMonitor: &mockETagsClient{changed: false},
 	}
 
 	// Setup provider with feature flags refresh timer

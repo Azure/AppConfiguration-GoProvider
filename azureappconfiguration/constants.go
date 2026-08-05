@@ -27,6 +27,7 @@ const (
 
 // Feature flag constants
 const (
+	featureFlagIdKey        string = "id"
 	enabledKey              string = "enabled"
 	telemetryKey            string = "telemetry"
 	metadataKey             string = "metadata"
@@ -45,6 +46,15 @@ const (
 	allocationIdKeyName     string = "AllocationId"
 	conditionsKeyName       string = "conditions"
 	clientFiltersKeyName    string = "client_filters"
+	requirementTypeKey      string = "requirement_type"
+	parametersKey           string = "parameters"
+	descriptionKey          string = "description"
+	statusOverrideKey       string = "status_override"
+	defaultWhenDisabledKey  string = "default_when_disabled"
+	groupKey                string = "group"
+	groupsKey               string = "groups"
+	userKey                 string = "user"
+	usersKey                string = "users"
 )
 
 // Refresh interval constants
