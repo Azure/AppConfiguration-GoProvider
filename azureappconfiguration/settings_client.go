@@ -307,19 +307,28 @@ func (c *enhFFETagsClient) checkIfETagChanged(ctx context.Context) (bool, error)
 			s.TagsFilter = tagFilters
 		}
 
-		// The feature flag endpoint pager does not support conditional requests yet, so
-		// re-list all pages and compare their ETags with the previously stored ones.
-		pager := c.client.NewListFeatureFlagsPager(s, nil)
-		latestETags := make([]*azcore.ETag, 0)
+		conditions := make([]azcore.MatchConditions, 0, len(storedETags))
+		for _, eTag := range storedETags {
+			conditions = append(conditions, azcore.MatchConditions{IfNoneMatch: eTag})
+		}
+
+		pager := c.client.NewListFeatureFlagsPager(s, &azappconfig.ListFeatureFlagsOptions{
+			MatchConditions: conditions,
+		})
+
+		pageCount := 0
 		for pager.More() {
+			pageCount++
 			page, err := pager.NextPage(ctx)
 			if err != nil {
 				return false, err
 			}
-			latestETags = append(latestETags, page.ETag)
+			if page.ETag != nil {
+				return true, nil
+			}
 		}
 
-		if !equalETagSlices(storedETags, latestETags) {
+		if pageCount != len(storedETags) {
 			return true, nil
 		}
 	}
