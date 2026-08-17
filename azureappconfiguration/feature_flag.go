@@ -32,7 +32,7 @@ func (azappcfg *AzureAppConfiguration) processFeatureFlags(ffSettings []azappcon
 
 		var ff map[string]any
 		if err := json.Unmarshal([]byte(*setting.Value), &ff); err != nil {
-			log.Printf("Invalid feature flag setting: key=%s, error=%s, just ignore", *setting.Key, err.Error())
+			log.Printf("Invalid feature flag setting: key=%s, error=%s, ignoring", *setting.Key, err.Error())
 			continue
 		}
 

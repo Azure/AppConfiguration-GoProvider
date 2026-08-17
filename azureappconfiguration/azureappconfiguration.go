@@ -573,13 +573,13 @@ func (azappcfg *AzureAppConfiguration) loadKeyVaultSecrets(ctx context.Context, 
 	return secrets, nil
 }
 
-func (azappcfg *AzureAppConfiguration) loadFeatureFlags(ctx context.Context, kvClient settingsClient, ffClient settingsClient) error {
-	ffRsp, err := kvClient.getSettings(ctx)
+func (azappcfg *AzureAppConfiguration) loadFeatureFlags(ctx context.Context, ffClient settingsClient, enhancedFFClient settingsClient) error {
+	ffRsp, err := ffClient.getSettings(ctx)
 	if err != nil {
 		return err
 	}
 
-	enhFFRsp, err := ffClient.getSettings(ctx)
+	enhFFRsp, err := enhancedFFClient.getSettings(ctx)
 	if err != nil {
 		return err
 	}
