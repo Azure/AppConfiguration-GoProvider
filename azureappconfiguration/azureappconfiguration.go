@@ -250,14 +250,14 @@ func (azappcfg *AzureAppConfiguration) Refresh(ctx context.Context) error {
 
 	var keyValueRefreshed, featureFlagRefreshed bool
 	refreshTask := func(client appConfigClient) error {
-		var isKVRefreshed, isFFRefreshed bool
+		var kvRefreshed, ffRefreshed bool
 		eg, egCtx := errgroup.WithContext(ctx)
 		eg.Go(func() error {
 			refreshed, err := azappcfg.refreshKeyValues(egCtx, azappcfg.newKeyValueRefreshClient(client))
 			if err != nil {
 				return fmt.Errorf("failed to refresh key values: %w", err)
 			}
-			isKVRefreshed = refreshed
+			kvRefreshed = refreshed
 			return nil
 		})
 
@@ -266,7 +266,7 @@ func (azappcfg *AzureAppConfiguration) Refresh(ctx context.Context) error {
 			if err != nil {
 				return fmt.Errorf("failed to refresh feature flags: %w", err)
 			}
-			isFFRefreshed = refreshed
+			ffRefreshed = refreshed
 			return nil
 		})
 
@@ -274,8 +274,8 @@ func (azappcfg *AzureAppConfiguration) Refresh(ctx context.Context) error {
 			return err
 		}
 
-		keyValueRefreshed = isKVRefreshed
-		featureFlagRefreshed = isFFRefreshed
+		keyValueRefreshed = kvRefreshed
+		featureFlagRefreshed = ffRefreshed
 		return nil
 	}
 
