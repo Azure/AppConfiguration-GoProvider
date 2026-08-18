@@ -245,24 +245,34 @@ func (azappcfg *AzureAppConfiguration) Refresh(ctx context.Context) error {
 	defer azappcfg.refreshInProgress.Store(false)
 
 	var keyValueRefreshed, featureFlagRefreshed bool
-	var err error
 	refreshTask := func(client *azappconfig.Client) error {
+		var kvRefreshed, ffRefreshed bool
 		eg, egCtx := errgroup.WithContext(ctx)
 		eg.Go(func() error {
-			if keyValueRefreshed, err = azappcfg.refreshKeyValues(egCtx, azappcfg.newKeyValueRefreshClient(client)); err != nil {
+			refreshed, err := azappcfg.refreshKeyValues(egCtx, azappcfg.newKeyValueRefreshClient(client))
+			if err != nil {
 				return fmt.Errorf("failed to refresh key values: %w", err)
 			}
+			kvRefreshed = refreshed
 			return nil
 		})
 
 		eg.Go(func() error {
-			if featureFlagRefreshed, err = azappcfg.refreshFeatureFlags(egCtx, azappcfg.newFeatureFlagRefreshClient(client)); err != nil {
+			refreshed, err := azappcfg.refreshFeatureFlags(egCtx, azappcfg.newFeatureFlagRefreshClient(client))
+			if err != nil {
 				return fmt.Errorf("failed to refresh feature flags: %w", err)
 			}
+			ffRefreshed = refreshed
 			return nil
 		})
 
-		return eg.Wait()
+		if err := eg.Wait(); err != nil {
+			return err
+		}
+
+		keyValueRefreshed = kvRefreshed
+		featureFlagRefreshed = ffRefreshed
+		return nil
 	}
 
 	if err := azappcfg.executeFailoverPolicy(ctx, refreshTask); err != nil {
@@ -273,10 +283,11 @@ func (azappcfg *AzureAppConfiguration) Refresh(ctx context.Context) error {
 	// No need to reload Key Vault secrets if key values are refreshed
 	secretRefreshed := false
 	if !keyValueRefreshed {
-		secretRefreshed, err = azappcfg.refreshKeyVaultSecrets(ctx)
+		refreshed, err := azappcfg.refreshKeyVaultSecrets(ctx)
 		if err != nil {
 			return fmt.Errorf("failed to reload Key Vault secrets: %w", err)
 		}
+		secretRefreshed = refreshed
 	}
 
 	// Only execute callbacks if actual changes were applied
