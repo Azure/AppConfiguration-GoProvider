@@ -302,24 +302,3 @@ func toInterfaceSlice(values []string) []any {
 
 	return result
 }
-
-// equalETagSlices reports whether two ordered slices of page ETags are equivalent.
-func equalETagSlices(a []*azcore.ETag, b []*azcore.ETag) bool {
-	if len(a) != len(b) {
-		return false
-	}
-
-	for i := range a {
-		if a[i] == nil || b[i] == nil {
-			if a[i] != b[i] {
-				return false
-			}
-			continue
-		}
-		if *a[i] != *b[i] {
-			return false
-		}
-	}
-
-	return true
-}

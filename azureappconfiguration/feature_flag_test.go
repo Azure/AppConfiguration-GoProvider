@@ -270,14 +270,3 @@ func TestConvertFeatureFlagToMicrosoftSchema_LogsInvalidJSONVariant(t *testing.T
 	assert.Contains(t, output.String(), "Invalid enhanced feature flag: name=InvalidVariantFlag")
 	assert.Contains(t, output.String(), "invalid character")
 }
-
-func TestEqualETagSlices(t *testing.T) {
-	a := azcore.ETag("a")
-	b := azcore.ETag("b")
-
-	assert.True(t, equalETagSlices([]*azcore.ETag{&a, &b}, []*azcore.ETag{&a, &b}))
-	assert.False(t, equalETagSlices([]*azcore.ETag{&a}, []*azcore.ETag{&a, &b}))
-	assert.False(t, equalETagSlices([]*azcore.ETag{&a, &b}, []*azcore.ETag{&a, &a}))
-	assert.True(t, equalETagSlices([]*azcore.ETag{nil}, []*azcore.ETag{nil}))
-	assert.False(t, equalETagSlices([]*azcore.ETag{&a}, []*azcore.ETag{nil}))
-}
