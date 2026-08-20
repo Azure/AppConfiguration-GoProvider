@@ -4,9 +4,11 @@
 package azureappconfiguration
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
+	"log"
 	"testing"
 
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore"
@@ -45,6 +47,7 @@ func TestConvertFeatureFlagToMicrosoftSchema(t *testing.T) {
 	statusOverride := azappconfig.StatusOverrideDisabled
 	defaultVariant := "Off"
 	percentileVariant := "On"
+	variantContentType := "application/json"
 	from, to2 := 0.0, 50.0
 
 	featureFlag := azappconfig.FeatureFlag{
@@ -57,8 +60,8 @@ func TestConvertFeatureFlagToMicrosoftSchema(t *testing.T) {
 			},
 		},
 		Variants: []azappconfig.FeatureFlagVariantDefinition{
-			{Name: to.Ptr("Off"), Value: to.Ptr("false"), StatusOverride: &statusOverride},
-			{Name: to.Ptr("On"), Value: to.Ptr("true")},
+			{Name: to.Ptr("Off"), Value: to.Ptr("false"), ContentType: &variantContentType, StatusOverride: &statusOverride},
+			{Name: to.Ptr("On"), Value: to.Ptr("true"), ContentType: &variantContentType},
 		},
 		Allocation: &azappconfig.FeatureFlagAllocation{
 			DefaultWhenEnabled:  &defaultVariant,
@@ -154,13 +157,13 @@ func TestPopulateTelemetryMetadata(t *testing.T) {
 
 func TestGenerateFeatureFlagReference(t *testing.T) {
 	assert.Equal(t, "https://fake.azconfig.io/kv/Beta",
-		generateFeatureFlagReference("https://fake.azconfig.io", "kv", "Beta", nil))
+		generateFeatureFlagReference("https://fake.azconfig.io", keyValueResourceType, "Beta", nil))
 
 	assert.Equal(t, "https://fake.azconfig.io/ff/Beta",
-		generateFeatureFlagReference("https://fake.azconfig.io", "ff", "Beta", to.Ptr("")))
+		generateFeatureFlagReference("https://fake.azconfig.io", featureFlagResourceType, "Beta", to.Ptr("")))
 
 	assert.Equal(t, "https://fake.azconfig.io/ff/Beta?label=prod",
-		generateFeatureFlagReference("https://fake.azconfig.io", "ff", "Beta", to.Ptr("prod")))
+		generateFeatureFlagReference("https://fake.azconfig.io", featureFlagResourceType, "Beta", to.Ptr("prod")))
 }
 
 func TestLoadFeatureFlags_MergesClassicAndEnhanced(t *testing.T) {
@@ -212,11 +215,60 @@ func TestLoadFeatureFlags_MergesClassicAndEnhanced(t *testing.T) {
 	enhancedClient.AssertExpectations(t)
 }
 
-func TestParseFeatureFlagValue(t *testing.T) {
-	assert.Nil(t, parseFeatureFlagValue(nil))
-	assert.Equal(t, true, parseFeatureFlagValue(to.Ptr("true")))
-	assert.Equal(t, float64(42), parseFeatureFlagValue(to.Ptr("42")))
-	assert.Equal(t, "plain text", parseFeatureFlagValue(to.Ptr("plain text")))
+func TestParseFeatureFlagParameterValue(t *testing.T) {
+	assert.Nil(t, parseFeatureFlagParameterValue(nil))
+	assert.Equal(t, "true", parseFeatureFlagParameterValue(to.Ptr("true")))
+	assert.Equal(t, "42", parseFeatureFlagParameterValue(to.Ptr("42")))
+	assert.Equal(t, "plain text", parseFeatureFlagParameterValue(to.Ptr("plain text")))
+	assert.Equal(t, map[string]any{"enabled": true}, parseFeatureFlagParameterValue(to.Ptr(`  {"enabled":true}`)))
+	assert.Equal(t, []any{"one", float64(2)}, parseFeatureFlagParameterValue(to.Ptr(`["one",2]`)))
+	assert.Equal(t, "{invalid", parseFeatureFlagParameterValue(to.Ptr("{invalid")))
+}
+
+func TestParseFeatureFlagVariantValue(t *testing.T) {
+	jsonContentType := to.Ptr("application/json")
+	parse := func(raw *string, contentType *string) any {
+		value, err := parseFeatureFlagVariantValue(raw, contentType)
+		assert.NoError(t, err)
+		return value
+	}
+
+	assert.Nil(t, parse(nil, jsonContentType))
+	assert.Equal(t, true, parse(to.Ptr("true"), jsonContentType))
+	assert.Equal(t, float64(42), parse(to.Ptr("42"), jsonContentType))
+	assert.Equal(t, map[string]any{"enabled": true}, parse(to.Ptr(`{"enabled":true}`), jsonContentType))
+	assert.Equal(t, `{"enabled":true}`, parse(to.Ptr(`{"enabled":true}`), nil))
+
+	value, err := parseFeatureFlagVariantValue(to.Ptr("{invalid"), jsonContentType)
+	assert.Error(t, err)
+	assert.Equal(t, "{invalid", value)
+}
+
+func TestConvertFeatureFlagToMicrosoftSchema_LogsInvalidJSONVariant(t *testing.T) {
+	var output bytes.Buffer
+	previousOutput := log.Writer()
+	log.SetOutput(&output)
+	t.Cleanup(func() {
+		log.SetOutput(previousOutput)
+	})
+
+	flag := azappconfig.FeatureFlag{
+		Name: to.Ptr("InvalidVariantFlag"),
+		Variants: []azappconfig.FeatureFlagVariantDefinition{
+			{
+				Name:        to.Ptr("Broken"),
+				Value:       to.Ptr("{invalid"),
+				ContentType: to.Ptr("application/json"),
+			},
+		},
+	}
+
+	converted := convertToMicrosoftSchema(flag)
+	variants := converted[variantsKeyName].([]any)
+	variant := variants[0].(map[string]any)
+	assert.Equal(t, "{invalid", variant[configurationValueKey])
+	assert.Contains(t, output.String(), "Invalid enhanced feature flag: name=InvalidVariantFlag")
+	assert.Contains(t, output.String(), "invalid character")
 }
 
 func TestEqualETagSlices(t *testing.T) {

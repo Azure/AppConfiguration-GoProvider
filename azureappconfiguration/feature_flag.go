@@ -37,7 +37,7 @@ func (azappcfg *AzureAppConfiguration) processFeatureFlags(ffSettings []azappcon
 		}
 
 		azappcfg.updateFeatureFlagTracing(ff)
-		populateTelemetryMetadata(ff, setting.ETag, generateFeatureFlagReference(clientEndpoint, "kv", *setting.Key, setting.Label))
+		populateTelemetryMetadata(ff, setting.ETag, generateFeatureFlagReference(clientEndpoint, keyValueResourceType, *setting.Key, setting.Label))
 		merged = append(merged, ff)
 	}
 
@@ -48,7 +48,7 @@ func (azappcfg *AzureAppConfiguration) processFeatureFlags(ffSettings []azappcon
 
 		ff := convertToMicrosoftSchema(flag)
 		azappcfg.updateFeatureFlagTracing(ff)
-		populateTelemetryMetadata(ff, flag.ETag, generateFeatureFlagReference(clientEndpoint, "ff", *flag.Name, flag.Label))
+		populateTelemetryMetadata(ff, flag.ETag, generateFeatureFlagReference(clientEndpoint, featureFlagResourceType, *flag.Name, flag.Label))
 		merged = append(merged, ff)
 	}
 
@@ -76,8 +76,8 @@ func deduplicateFeatureFlags(featureFlags []map[string]any) []any {
 	return deduplicated
 }
 
-func generateFeatureFlagReference(endpoint string, path string, name string, label *string) string {
-	reference := fmt.Sprintf("%s/%s/%s", endpoint, path, name)
+func generateFeatureFlagReference(endpoint string, resourceType string, name string, label *string) string {
+	reference := fmt.Sprintf("%s/%s/%s", endpoint, resourceType, name)
 	if label != nil && strings.TrimSpace(*label) != "" {
 		reference += fmt.Sprintf("?label=%s", *label)
 	}
@@ -137,7 +137,7 @@ func convertToMicrosoftSchema(flag azappconfig.FeatureFlag) map[string]any {
 			if filter.Parameters != nil {
 				parameters := make(map[string]any, len(filter.Parameters))
 				for key, value := range filter.Parameters {
-					parameters[key] = parseFeatureFlagValue(value)
+					parameters[key] = parseFeatureFlagParameterValue(value)
 				}
 				clientFilter[parametersKey] = parameters
 			}
@@ -159,7 +159,11 @@ func convertToMicrosoftSchema(flag azappconfig.FeatureFlag) map[string]any {
 				variantMap[nameKey] = *variant.Name
 			}
 			if variant.Value != nil {
-				variantMap[configurationValueKey] = parseFeatureFlagValue(variant.Value)
+				configurationValue, err := parseFeatureFlagVariantValue(variant.Value, variant.ContentType)
+				if err != nil && flag.Name != nil {
+					log.Printf("Invalid enhanced feature flag: name=%s, error=%s, using variant value as string", *flag.Name, err.Error())
+				}
+				variantMap[configurationValueKey] = configurationValue
 			}
 			if variant.StatusOverride != nil {
 				variantMap[statusOverrideKey] = string(*variant.StatusOverride)
@@ -253,11 +257,14 @@ func convertToMicrosoftSchema(flag azappconfig.FeatureFlag) map[string]any {
 	return result
 }
 
-// parseFeatureFlagValue attempts to parse the raw string as JSON to recover booleans, numbers,
-// and nested objects. Non-JSON strings are returned as-is.
-func parseFeatureFlagValue(raw *string) any {
+func parseFeatureFlagParameterValue(raw *string) any {
 	if raw == nil {
 		return nil
+	}
+
+	trimmed := strings.TrimLeft(*raw, " \t\r\n")
+	if len(trimmed) == 0 || (trimmed[0] != '{' && trimmed[0] != '[') {
+		return *raw
 	}
 
 	var parsed any
@@ -266,6 +273,23 @@ func parseFeatureFlagValue(raw *string) any {
 	}
 
 	return *raw
+}
+
+func parseFeatureFlagVariantValue(raw *string, contentType *string) (any, error) {
+	if raw == nil {
+		return nil, nil
+	}
+
+	if !isJsonContentType(contentType) {
+		return *raw, nil
+	}
+
+	var parsed any
+	if err := json.Unmarshal([]byte(*raw), &parsed); err != nil {
+		return *raw, err
+	}
+
+	return parsed, nil
 }
 
 // toInterfaceSlice converts a slice of strings into a slice of any for inclusion in the

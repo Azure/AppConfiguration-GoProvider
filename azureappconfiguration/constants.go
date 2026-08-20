@@ -31,6 +31,8 @@ const (
 	enabledKey              string = "enabled"
 	telemetryKey            string = "telemetry"
 	metadataKey             string = "metadata"
+	keyValueResourceType    string = "kv"
+	featureFlagResourceType string = "ff"
 	nameKey                 string = "name"
 	eTagKey                 string = "ETag"
 	featureFlagReferenceKey string = "FeatureFlagReference"
