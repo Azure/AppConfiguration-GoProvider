@@ -20,12 +20,12 @@ import (
 	"github.com/Azure/azure-sdk-for-go/sdk/data/azappconfig/v2"
 )
 
-// configurationClientManager handles creation and management of app configuration clients
-type configurationClientManager struct {
+// appConfigClientManager handles creation and management of app configuration clients
+type appConfigClientManager struct {
 	replicaDiscoveryEnabled   bool
 	clientOptions             *azappconfig.ClientOptions
-	staticClient              *configurationClientWrapper
-	dynamicClients            []*configurationClientWrapper
+	staticClient              *appConfigClientWrapper
+	dynamicClients            []*appConfigClientWrapper
 	endpoint                  string
 	validDomain               string
 	credential                azcore.TokenCredential
@@ -35,22 +35,22 @@ type configurationClientManager struct {
 	lastFallbackClientRefresh time.Time
 }
 
-// configurationClientWrapper wraps an Azure App Configuration client with additional metadata
-type configurationClientWrapper struct {
+// appConfigClientWrapper wraps an Azure App Configuration client with additional metadata
+type appConfigClientWrapper struct {
 	endpoint       string
-	client         *azappconfig.Client
+	client         appConfigClient
 	backOffEndTime time.Time
 	failedAttempts int
 }
 
 type clientManager interface {
-	getClients(ctx context.Context) ([]*configurationClientWrapper, error)
+	getClients(ctx context.Context) ([]*appConfigClientWrapper, error)
 	refreshClients(ctx context.Context)
 }
 
 // newConfigurationClientManager creates a new configuration client manager
-func newConfigurationClientManager(authOptions AuthenticationOptions, options *Options) (*configurationClientManager, error) {
-	manager := &configurationClientManager{
+func newConfigurationClientManager(authOptions AuthenticationOptions, options *Options) (*appConfigClientManager, error) {
+	manager := &appConfigClientManager{
 		clientOptions: setTelemetry(options.ClientOptions),
 	}
 
@@ -67,9 +67,9 @@ func newConfigurationClientManager(authOptions AuthenticationOptions, options *O
 }
 
 // initializeClient sets up the Azure App Configuration client based on the provided authentication options
-func (manager *configurationClientManager) initializeClient(authOptions AuthenticationOptions) error {
+func (manager *appConfigClientManager) initializeClient(authOptions AuthenticationOptions) error {
 	var err error
-	var staticClient *azappconfig.Client
+	var staticClient appConfigClient
 
 	if authOptions.ConnectionString != "" {
 		// Initialize using connection string
@@ -87,12 +87,12 @@ func (manager *configurationClientManager) initializeClient(authOptions Authenti
 			return err
 		}
 
-		if staticClient, err = azappconfig.NewClientFromConnectionString(connectionString, manager.clientOptions); err != nil {
+		if staticClient, err = newAppConfigurationClientFromConnectionString(connectionString, manager.clientOptions); err != nil {
 			return err
 		}
 	} else {
 		// Initialize using explicit endpoint and credential
-		if staticClient, err = azappconfig.NewClient(authOptions.Endpoint, authOptions.Credential, manager.clientOptions); err != nil {
+		if staticClient, err = newAppConfigurationClient(authOptions.Endpoint, authOptions.Credential, manager.clientOptions); err != nil {
 			return err
 		}
 		manager.endpoint = authOptions.Endpoint
@@ -100,7 +100,7 @@ func (manager *configurationClientManager) initializeClient(authOptions Authenti
 	}
 
 	manager.validDomain = getValidDomain(manager.endpoint)
-	manager.staticClient = &configurationClientWrapper{
+	manager.staticClient = &appConfigClientWrapper{
 		endpoint: manager.endpoint,
 		client:   staticClient,
 	}
@@ -108,9 +108,9 @@ func (manager *configurationClientManager) initializeClient(authOptions Authenti
 	return nil
 }
 
-func (manager *configurationClientManager) getClients(ctx context.Context) ([]*configurationClientWrapper, error) {
+func (manager *appConfigClientManager) getClients(ctx context.Context) ([]*appConfigClientWrapper, error) {
 	currentTime := time.Now()
-	clients := make([]*configurationClientWrapper, 0, 1+len(manager.dynamicClients))
+	clients := make([]*appConfigClientWrapper, 0, 1+len(manager.dynamicClients))
 
 	// Add the static client if it is not in backoff
 	if currentTime.After(manager.staticClient.backOffEndTime) {
@@ -138,7 +138,7 @@ func (manager *configurationClientManager) getClients(ctx context.Context) ([]*c
 	return clients, nil
 }
 
-func (manager *configurationClientManager) refreshClients(ctx context.Context) {
+func (manager *appConfigClientManager) refreshClients(ctx context.Context) {
 	currentTime := time.Now()
 	if manager.replicaDiscoveryEnabled &&
 		currentTime.After(manager.lastFallbackClientAttempt.Add(minimalClientRefreshInterval)) {
@@ -148,7 +148,7 @@ func (manager *configurationClientManager) refreshClients(ctx context.Context) {
 	}
 }
 
-func (manager *configurationClientManager) discoverFallbackClients(host string) {
+func (manager *appConfigClientManager) discoverFallbackClients(host string) {
 	go func() {
 		defer func() {
 			if r := recover(); r != nil {
@@ -169,25 +169,25 @@ func (manager *configurationClientManager) discoverFallbackClients(host string) 
 	}()
 }
 
-func (manager *configurationClientManager) processSrvTargetHosts(srvTargetHosts []string) {
+func (manager *appConfigClientManager) processSrvTargetHosts(srvTargetHosts []string) {
 	// Shuffle the list of SRV target hosts for load balancing
 	rand.Shuffle(len(srvTargetHosts), func(i, j int) {
 		srvTargetHosts[i], srvTargetHosts[j] = srvTargetHosts[j], srvTargetHosts[i]
 	})
 
-	newDynamicClients := make([]*configurationClientWrapper, 0, len(srvTargetHosts))
+	newDynamicClients := make([]*appConfigClientWrapper, 0, len(srvTargetHosts))
 	for _, host := range srvTargetHosts {
 		if isValidEndpoint(host, manager.validDomain) {
 			targetEndpoint := "https://" + host
 			if strings.EqualFold(targetEndpoint, manager.endpoint) {
 				continue // Skip primary endpoint
 			}
-			client, err := manager.newConfigurationClient(targetEndpoint)
+			client, err := manager.newClient(targetEndpoint)
 			if err != nil {
 				log.Printf("failed to create client for replica %s: %v", targetEndpoint, err)
 				continue // Continue with other replicas instead of returning
 			}
-			newDynamicClients = append(newDynamicClients, &configurationClientWrapper{
+			newDynamicClients = append(newDynamicClients, &appConfigClientWrapper{
 				endpoint: targetEndpoint,
 				client:   client,
 			})
@@ -242,9 +242,9 @@ func querySrvTargetHost(ctx context.Context, host string) ([]string, error) {
 	return results, nil
 }
 
-func (manager *configurationClientManager) newConfigurationClient(endpoint string) (*azappconfig.Client, error) {
+func (manager *appConfigClientManager) newClient(endpoint string) (appConfigClient, error) {
 	if manager.credential != nil {
-		return azappconfig.NewClient(endpoint, manager.credential, manager.clientOptions)
+		return newAppConfigurationClient(endpoint, manager.credential, manager.clientOptions)
 	}
 
 	connectionStr := buildConnectionString(endpoint, manager.secret, manager.id)
@@ -252,7 +252,7 @@ func (manager *configurationClientManager) newConfigurationClient(endpoint strin
 		return nil, fmt.Errorf("failed to build connection string for fallback client")
 	}
 
-	return azappconfig.NewClientFromConnectionString(connectionStr, manager.clientOptions)
+	return newAppConfigurationClientFromConnectionString(connectionStr, manager.clientOptions)
 }
 
 func buildConnectionString(endpoint string, secret string, id string) string {
@@ -329,7 +329,7 @@ func isValidEndpoint(host string, validDomain string) bool {
 	return strings.HasSuffix(strings.ToLower(host), strings.ToLower(validDomain))
 }
 
-func (client *configurationClientWrapper) updateBackoffStatus(success bool) {
+func (client *appConfigClientWrapper) updateBackoffStatus(success bool) {
 	if success {
 		client.failedAttempts = 0
 		client.backOffEndTime = time.Time{}

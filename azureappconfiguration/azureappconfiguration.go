@@ -48,6 +48,7 @@ type AzureAppConfiguration struct {
 	kvSelectors          []Selector
 	ffEnabled            bool
 	ffSelectors          []Selector
+	enhancedFFSelectors  []Selector
 	trimPrefixes         []string
 	watchedSettings      []WatchedSetting
 	loadBalancingEnabled bool
@@ -57,6 +58,7 @@ type AzureAppConfiguration struct {
 	watchAll               bool
 	kvETags                map[comparableSelector][]*azcore.ETag
 	ffETags                map[comparableSelector][]*azcore.ETag
+	enhancedFFETags        map[comparableSelector][]*azcore.ETag
 	keyVaultRefs           map[string]string // unversioned Key Vault references
 	kvRefreshTimer         refresh.Condition
 	secretRefreshTimer     refresh.Condition
@@ -135,9 +137,11 @@ func Load(ctx context.Context, authentication AuthenticationOptions, options *Op
 
 	if azappcfg.ffEnabled {
 		azappcfg.ffSelectors = getFeatureFlagSelectors(deduplicateSelectors(options.FeatureFlagOptions.Selectors))
+		azappcfg.enhancedFFSelectors = deduplicateSelectors(options.FeatureFlagOptions.Selectors)
 		if options.FeatureFlagOptions.RefreshOptions.Enabled {
 			azappcfg.ffRefreshTimer = refresh.NewTimer(options.FeatureFlagOptions.RefreshOptions.Interval)
 			azappcfg.ffETags = make(map[comparableSelector][]*azcore.ETag)
+			azappcfg.enhancedFFETags = make(map[comparableSelector][]*azcore.ETag)
 		}
 	}
 
@@ -245,7 +249,7 @@ func (azappcfg *AzureAppConfiguration) Refresh(ctx context.Context) error {
 	defer azappcfg.refreshInProgress.Store(false)
 
 	var keyValueRefreshed, featureFlagRefreshed bool
-	refreshTask := func(client *azappconfig.Client) error {
+	refreshTask := func(client appConfigClient) error {
 		var kvRefreshed, ffRefreshed bool
 		eg, egCtx := errgroup.WithContext(ctx)
 		eg.Go(func() error {
@@ -320,7 +324,7 @@ func (azappcfg *AzureAppConfiguration) OnRefreshSuccess(callback func()) {
 }
 
 func (azappcfg *AzureAppConfiguration) load(ctx context.Context) error {
-	loadTask := func(client *azappconfig.Client) error {
+	loadTask := func(client appConfigClient) error {
 		eg, egCtx := errgroup.WithContext(ctx)
 		eg.Go(func() error {
 			keyValuesClient := &selectorSettingsClient{
@@ -349,7 +353,12 @@ func (azappcfg *AzureAppConfiguration) load(ctx context.Context) error {
 					client:         client,
 					tracingOptions: azappcfg.tracingOptions,
 				}
-				return azappcfg.loadFeatureFlags(egCtx, ffClient)
+				enhancedFFClient := &enhFFSettingsClient{
+					selectors:      azappcfg.enhancedFFSelectors,
+					client:         client,
+					tracingOptions: azappcfg.tracingOptions,
+				}
+				return azappcfg.loadFeatureFlags(egCtx, ffClient, enhancedFFClient)
 			})
 		}
 
@@ -575,34 +584,19 @@ func (azappcfg *AzureAppConfiguration) loadKeyVaultSecrets(ctx context.Context, 
 	return secrets, nil
 }
 
-func (azappcfg *AzureAppConfiguration) loadFeatureFlags(ctx context.Context, settingsClient settingsClient) error {
-	settingsResponse, err := settingsClient.getSettings(ctx)
+func (azappcfg *AzureAppConfiguration) loadFeatureFlags(ctx context.Context, ffClient settingsClient, enhancedFFClient settingsClient) error {
+	ffRsp, err := ffClient.getSettings(ctx)
 	if err != nil {
 		return err
 	}
 
-	dedupFeatureFlags := make(map[string]any, len(settingsResponse.settings))
-	for _, setting := range settingsResponse.settings {
-		// Skip non-feature flag settings
-		if setting.ContentType == nil || *setting.ContentType != featureFlagContentType {
-			continue
-		}
-
-		if setting.Key != nil {
-			var v map[string]any
-			if err := json.Unmarshal([]byte(*setting.Value), &v); err != nil {
-				log.Printf("Invalid feature flag setting: key=%s, error=%s, just ignore", *setting.Key, err.Error())
-				continue
-			}
-			azappcfg.updateFeatureFlagTracing(v)
-			dedupFeatureFlags[*setting.Key] = v
-		}
+	enhFFRsp, err := enhancedFFClient.getSettings(ctx)
+	if err != nil {
+		return err
 	}
 
-	featureFlags := make([]any, 0, len(dedupFeatureFlags))
-	for _, v := range dedupFeatureFlags {
-		featureFlags = append(featureFlags, v)
-	}
+	azappcfg.tracingOptions.UseEnhancedFeatureFlag = len(enhFFRsp.featureFlags) > 0
+	featureFlags := azappcfg.processFeatureFlags(ffRsp.settings, enhFFRsp.featureFlags)
 
 	// "feature_management": {"feature_flags": [{...}, {...}]}
 	ffSettings := map[string]any{
@@ -611,7 +605,8 @@ func (azappcfg *AzureAppConfiguration) loadFeatureFlags(ctx context.Context, set
 		},
 	}
 
-	azappcfg.ffETags = settingsResponse.pageETags
+	azappcfg.ffETags = ffRsp.pageETags
+	azappcfg.enhancedFFETags = enhFFRsp.pageETags
 	azappcfg.featureFlags = ffSettings
 
 	return nil
@@ -707,27 +702,28 @@ func (azappcfg *AzureAppConfiguration) refreshFeatureFlags(ctx context.Context, 
 		return false, nil
 	}
 
-	// Check if any ETags have changed
-	eTagChanged, err := refreshClient.monitor.checkIfETagChanged(ctx)
+	ffChanged, err := refreshClient.monitor.checkIfETagChanged(ctx)
 	if err != nil {
 		log.Printf("Failed to check if feature flag settings have changed: %s", err.Error())
 		return false, err
 	}
 
-	if !eTagChanged {
+	if !ffChanged {
+		enhFFChanged, err := refreshClient.enhFFMonitor.checkIfETagChanged(ctx)
+		if err != nil {
+			log.Printf("Failed to check if enhanced feature flags have changed: %s", err.Error())
+			return false, err
+		}
+		ffChanged = enhFFChanged
+	}
+
+	if !ffChanged {
 		// No changes detected, reset timer and return
 		azappcfg.ffRefreshTimer.Reset()
 		return false, nil
 	}
 
-	// Reload feature flags
-	eg, egCtx := errgroup.WithContext(ctx)
-	eg.Go(func() error {
-		settingsClient := refreshClient.loader
-		return azappcfg.loadFeatureFlags(egCtx, settingsClient)
-	})
-
-	if err := eg.Wait(); err != nil {
+	if err := azappcfg.loadFeatureFlags(ctx, refreshClient.loader, refreshClient.enhFFLoader); err != nil {
 		log.Printf("Failed to reload feature flag configuration: %s", err.Error())
 		// Don't reset the timer if reload failed
 		return false, err
@@ -738,7 +734,7 @@ func (azappcfg *AzureAppConfiguration) refreshFeatureFlags(ctx context.Context, 
 	return true, nil
 }
 
-func (azappcfg *AzureAppConfiguration) executeFailoverPolicy(ctx context.Context, operation func(*azappconfig.Client) error) error {
+func (azappcfg *AzureAppConfiguration) executeFailoverPolicy(ctx context.Context, operation func(appConfigClient) error) error {
 	clients, err := azappcfg.clientManager.getClients(ctx)
 	if err != nil {
 		return err
@@ -753,7 +749,7 @@ func (azappcfg *AzureAppConfiguration) executeFailoverPolicy(ctx context.Context
 		rotateClientsToNextEndpoint(clients, azappcfg.lastSuccessfulEndpoint)
 	}
 
-	if manager, ok := azappcfg.clientManager.(*configurationClientManager); ok {
+	if manager, ok := azappcfg.clientManager.(*appConfigClientManager); ok {
 		azappcfg.tracingOptions.ReplicaCount = len(manager.dynamicClients)
 	}
 
@@ -956,7 +952,7 @@ func normalizedWatchedSettings(s []WatchedSetting) []WatchedSetting {
 	return result
 }
 
-func (azappcfg *AzureAppConfiguration) newKeyValueRefreshClient(client *azappconfig.Client) refreshClient {
+func (azappcfg *AzureAppConfiguration) newKeyValueRefreshClient(client appConfigClient) refreshClient {
 	var monitor eTagsClient
 	if azappcfg.watchAll {
 		monitor = &pageETagsClient{
@@ -987,7 +983,7 @@ func (azappcfg *AzureAppConfiguration) newKeyValueRefreshClient(client *azappcon
 	}
 }
 
-func (azappcfg *AzureAppConfiguration) newFeatureFlagRefreshClient(client *azappconfig.Client) refreshClient {
+func (azappcfg *AzureAppConfiguration) newFeatureFlagRefreshClient(client appConfigClient) refreshClient {
 	return refreshClient{
 		loader: &selectorSettingsClient{
 			selectors:      azappcfg.ffSelectors,
@@ -998,6 +994,16 @@ func (azappcfg *AzureAppConfiguration) newFeatureFlagRefreshClient(client *azapp
 			client:         client,
 			tracingOptions: azappcfg.tracingOptions,
 			pageETags:      azappcfg.ffETags,
+		},
+		enhFFLoader: &enhFFSettingsClient{
+			selectors:      azappcfg.enhancedFFSelectors,
+			client:         client,
+			tracingOptions: azappcfg.tracingOptions,
+		},
+		enhFFMonitor: &enhFFETagsClient{
+			client:         client,
+			tracingOptions: azappcfg.tracingOptions,
+			pageETags:      azappcfg.enhancedFFETags,
 		},
 	}
 }
@@ -1040,7 +1046,7 @@ func (azappcfg *AzureAppConfiguration) updateFeatureFlagTracing(featureFlag map[
 	}
 }
 
-func rotateClientsToNextEndpoint(clients []*configurationClientWrapper, lastSuccessfulEndpoint string) {
+func rotateClientsToNextEndpoint(clients []*appConfigClientWrapper, lastSuccessfulEndpoint string) {
 	if len(clients) <= 1 {
 		return
 	}

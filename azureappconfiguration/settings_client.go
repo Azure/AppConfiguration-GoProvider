@@ -19,27 +19,50 @@ import (
 
 type settingsResponse struct {
 	settings     []azappconfig.Setting
+	featureFlags []azappconfig.FeatureFlag
 	watchedETags map[WatchedSetting]*azcore.ETag
 	pageETags    map[comparableSelector][]*azcore.ETag
 }
 
 type selectorSettingsClient struct {
 	selectors      []Selector
-	client         *azappconfig.Client
+	client         appConfigClient
+	tracingOptions tracing.Options
+}
+
+// enhFFSettingsClient loads enhanced feature flags.
+type enhFFSettingsClient struct {
+	selectors      []Selector
+	client         appConfigClient
+	tracingOptions tracing.Options
+}
+
+// enhFFETagsClient checks whether feature flags have changed by comparing page ETags.
+type enhFFETagsClient struct {
+	pageETags      map[comparableSelector][]*azcore.ETag
+	client         appConfigClient
 	tracingOptions tracing.Options
 }
 
 type watchedSettingClient struct {
 	watchedSettings []WatchedSetting
 	eTags           map[WatchedSetting]*azcore.ETag
-	client          *azappconfig.Client
+	client          appConfigClient
 	tracingOptions  tracing.Options
 }
 
 type pageETagsClient struct {
 	pageETags      map[comparableSelector][]*azcore.ETag
-	client         *azappconfig.Client
+	client         appConfigClient
 	tracingOptions tracing.Options
+}
+
+type refreshClient struct {
+	loader       settingsClient
+	monitor      eTagsClient
+	sentinels    settingsClient
+	enhFFLoader  settingsClient
+	enhFFMonitor eTagsClient
 }
 
 type settingsClient interface {
@@ -52,12 +75,6 @@ type eTagsClient interface {
 
 // snapshotSettingsLoader is a function type that loads settings from a snapshot by name.
 type snapshotSettingsLoader func(ctx context.Context, snapshotName string) ([]azappconfig.Setting, error)
-
-type refreshClient struct {
-	loader    settingsClient
-	monitor   eTagsClient
-	sentinels settingsClient
-}
 
 func (s *selectorSettingsClient) getSettings(ctx context.Context) (*settingsResponse, error) {
 	if s.tracingOptions.Enabled {
@@ -202,7 +219,7 @@ func (c *pageETagsClient) checkIfETagChanged(ctx context.Context) (bool, error) 
 	return false, nil
 }
 
-func loadSnapshotSettings(ctx context.Context, client *azappconfig.Client, snapshotName string) ([]azappconfig.Setting, error) {
+func loadSnapshotSettings(ctx context.Context, client appConfigClient, snapshotName string) ([]azappconfig.Setting, error) {
 	settings := make([]azappconfig.Setting, 0)
 	snapshot, err := client.GetSnapshot(ctx, snapshotName, nil)
 	if err != nil {
@@ -228,4 +245,93 @@ func loadSnapshotSettings(ctx context.Context, client *azappconfig.Client, snaps
 	}
 
 	return settings, nil
+}
+
+func (c *enhFFSettingsClient) getSettings(ctx context.Context) (*settingsResponse, error) {
+	if c.tracingOptions.Enabled {
+		ctx = policy.WithHTTPHeader(ctx, tracing.CreateCorrelationContextHeader(ctx, c.tracingOptions))
+	}
+
+	featureFlags := make([]azappconfig.FeatureFlag, 0)
+	pageETags := make(map[comparableSelector][]*azcore.ETag)
+	for _, filter := range c.selectors {
+		if filter.SnapshotName != "" {
+			continue
+		}
+
+		selector := azappconfig.FeatureFlagSelector{
+			NameFilter:  to.Ptr(filter.KeyFilter),
+			LabelFilter: to.Ptr(filter.LabelFilter),
+			TagsFilter:  filter.TagFilters,
+			Fields:      azappconfig.AllFeatureFlagFields(),
+		}
+
+		pager := c.client.NewListFeatureFlagsPager(selector, nil)
+		eTags := make([]*azcore.ETag, 0)
+		for pager.More() {
+			page, err := pager.NextPage(ctx)
+			if err != nil {
+				return nil, err
+			}
+			// Track the page ETag even when the page has no flags so change detection stays stable.
+			eTags = append(eTags, page.ETag)
+			if page.FeatureFlags != nil {
+				featureFlags = append(featureFlags, page.FeatureFlags...)
+			}
+		}
+
+		pageETags[filter.comparableKey()] = eTags
+	}
+
+	return &settingsResponse{
+		featureFlags: featureFlags,
+		pageETags:    pageETags,
+	}, nil
+}
+
+func (c *enhFFETagsClient) checkIfETagChanged(ctx context.Context) (bool, error) {
+	if c.tracingOptions.Enabled {
+		ctx = policy.WithHTTPHeader(ctx, tracing.CreateCorrelationContextHeader(ctx, c.tracingOptions))
+	}
+
+	for selector, storedETags := range c.pageETags {
+		s := azappconfig.FeatureFlagSelector{
+			NameFilter:  to.Ptr(selector.KeyFilter),
+			LabelFilter: to.Ptr(selector.LabelFilter),
+			Fields:      azappconfig.AllFeatureFlagFields(),
+		}
+
+		tagFilters := make([]string, 0)
+		if selector.TagFilters != "" {
+			json.Unmarshal([]byte(selector.TagFilters), &tagFilters)
+			s.TagsFilter = tagFilters
+		}
+
+		conditions := make([]azcore.MatchConditions, 0, len(storedETags))
+		for _, eTag := range storedETags {
+			conditions = append(conditions, azcore.MatchConditions{IfNoneMatch: eTag})
+		}
+
+		pager := c.client.NewListFeatureFlagsPager(s, &azappconfig.ListFeatureFlagsOptions{
+			MatchConditions: conditions,
+		})
+
+		pageCount := 0
+		for pager.More() {
+			pageCount++
+			page, err := pager.NextPage(ctx)
+			if err != nil {
+				return false, err
+			}
+			if page.ETag != nil {
+				return true, nil
+			}
+		}
+
+		if pageCount != len(storedETags) {
+			return true, nil
+		}
+	}
+
+	return false, nil
 }

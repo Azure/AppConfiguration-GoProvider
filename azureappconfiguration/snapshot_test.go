@@ -156,7 +156,7 @@ func TestLoadFeatureFlags_WithSnapshot(t *testing.T) {
 	}
 
 	// Load feature flags
-	err := azappcfg.loadFeatureFlags(context.Background(), mockClient)
+	err := azappcfg.loadFeatureFlags(context.Background(), mockClient, newEmptyEnhancedFFClient())
 
 	// Verify results
 	assert.NoError(t, err)
@@ -320,7 +320,7 @@ func TestLoadSnapshot_MixedContent_FeatureFlagsEnabledWithDifferentSelectors(t *
 	err := azappcfg.loadKeyValues(context.Background(), kvMockClient)
 	assert.NoError(t, err)
 
-	err = azappcfg.loadFeatureFlags(context.Background(), ffMockClient)
+	err = azappcfg.loadFeatureFlags(context.Background(), ffMockClient, newEmptyEnhancedFFClient())
 	assert.NoError(t, err)
 
 	// Verify results

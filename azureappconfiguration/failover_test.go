@@ -14,7 +14,6 @@ import (
 	"time"
 
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore"
-	"github.com/Azure/azure-sdk-for-go/sdk/data/azappconfig/v2"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 )
@@ -24,9 +23,9 @@ type mockClientManager struct {
 	mock.Mock
 }
 
-func (m *mockClientManager) getClients(ctx context.Context) ([]*configurationClientWrapper, error) {
+func (m *mockClientManager) getClients(ctx context.Context) ([]*appConfigClientWrapper, error) {
 	args := m.Called(ctx)
-	return args.Get(0).([]*configurationClientWrapper), args.Error(1)
+	return args.Get(0).([]*appConfigClientWrapper), args.Error(1)
 }
 
 func (m *mockClientManager) refreshClients(ctx context.Context) {
@@ -38,10 +37,10 @@ func TestExecuteFailoverPolicy_Success_FirstClient(t *testing.T) {
 	mockClientManager := new(mockClientManager)
 
 	// Create mock clients
-	client1 := &azappconfig.Client{}
-	client2 := &azappconfig.Client{}
+	client1 := &appConfigurationClient{}
+	client2 := &appConfigurationClient{}
 
-	clientWrappers := []*configurationClientWrapper{
+	clientWrappers := []*appConfigClientWrapper{
 		{endpoint: "https://primary.azconfig.io", client: client1, failedAttempts: 0},
 		{endpoint: "https://replica.azconfig.io", client: client2, failedAttempts: 0},
 	}
@@ -53,7 +52,7 @@ func TestExecuteFailoverPolicy_Success_FirstClient(t *testing.T) {
 	}
 
 	operationCallCount := 0
-	operation := func(client *azappconfig.Client) error {
+	operation := func(client appConfigClient) error {
 		operationCallCount++
 		if client == client1 {
 			return nil // Success on first client
@@ -73,10 +72,10 @@ func TestExecuteFailoverPolicy_Success_FirstClient(t *testing.T) {
 func TestExecuteFailoverPolicy_FailoverToSecondClient(t *testing.T) {
 	mockClientManager := new(mockClientManager)
 
-	client1 := &azappconfig.Client{}
-	client2 := &azappconfig.Client{}
+	client1 := &appConfigurationClient{}
+	client2 := &appConfigurationClient{}
 
-	clientWrappers := []*configurationClientWrapper{
+	clientWrappers := []*appConfigClientWrapper{
 		{endpoint: "https://primary.azconfig.io", client: client1, failedAttempts: 0},
 		{endpoint: "https://replica.azconfig.io", client: client2, failedAttempts: 0},
 	}
@@ -88,7 +87,7 @@ func TestExecuteFailoverPolicy_FailoverToSecondClient(t *testing.T) {
 	}
 
 	operationCallCount := 0
-	operation := func(client *azappconfig.Client) error {
+	operation := func(client appConfigClient) error {
 		operationCallCount++
 		if client == client1 {
 			// Simulate a failoverable error (network error)
@@ -113,10 +112,10 @@ func TestExecuteFailoverPolicy_FailoverToSecondClient(t *testing.T) {
 func TestExecuteFailoverPolicy_AllClientsFail_FailoverableErrors(t *testing.T) {
 	mockClientManager := new(mockClientManager)
 
-	client1 := &azappconfig.Client{}
-	client2 := &azappconfig.Client{}
+	client1 := &appConfigurationClient{}
+	client2 := &appConfigurationClient{}
 
-	clientWrappers := []*configurationClientWrapper{
+	clientWrappers := []*appConfigClientWrapper{
 		{endpoint: "https://primary.azconfig.io", client: client1, failedAttempts: 0},
 		{endpoint: "https://replica.azconfig.io", client: client2, failedAttempts: 0},
 	}
@@ -129,7 +128,7 @@ func TestExecuteFailoverPolicy_AllClientsFail_FailoverableErrors(t *testing.T) {
 	}
 
 	operationCallCount := 0
-	operation := func(client *azappconfig.Client) error {
+	operation := func(client appConfigClient) error {
 		operationCallCount++
 		if client == client1 {
 			return &azcore.ResponseError{StatusCode: http.StatusServiceUnavailable}
@@ -154,10 +153,10 @@ func TestExecuteFailoverPolicy_AllClientsFail_FailoverableErrors(t *testing.T) {
 func TestExecuteFailoverPolicy_NonFailoverableError(t *testing.T) {
 	mockClientManager := new(mockClientManager)
 
-	client1 := &azappconfig.Client{}
-	client2 := &azappconfig.Client{}
+	client1 := &appConfigurationClient{}
+	client2 := &appConfigurationClient{}
 
-	clientWrappers := []*configurationClientWrapper{
+	clientWrappers := []*appConfigClientWrapper{
 		{endpoint: "https://primary.azconfig.io", client: client1, failedAttempts: 0},
 		{endpoint: "https://replica.azconfig.io", client: client2, failedAttempts: 0},
 	}
@@ -170,7 +169,7 @@ func TestExecuteFailoverPolicy_NonFailoverableError(t *testing.T) {
 
 	operationCallCount := 0
 	nonFailoverableError := &azcore.ResponseError{StatusCode: http.StatusBadRequest}
-	operation := func(client *azappconfig.Client) error {
+	operation := func(client appConfigClient) error {
 		operationCallCount++
 		return nonFailoverableError
 	}
@@ -188,7 +187,7 @@ func TestExecuteFailoverPolicy_NonFailoverableError(t *testing.T) {
 func TestExecuteFailoverPolicy_NoClientsAvailable(t *testing.T) {
 	mockClientManager := new(mockClientManager)
 
-	mockClientManager.On("getClients", mock.Anything).Return([]*configurationClientWrapper{}, nil)
+	mockClientManager.On("getClients", mock.Anything).Return([]*appConfigClientWrapper{}, nil)
 	mockClientManager.On("refreshClients", mock.Anything).Return()
 
 	azappcfg := &AzureAppConfiguration{
@@ -196,7 +195,7 @@ func TestExecuteFailoverPolicy_NoClientsAvailable(t *testing.T) {
 	}
 
 	operationCallCount := 0
-	operation := func(client *azappconfig.Client) error {
+	operation := func(client appConfigClient) error {
 		operationCallCount++
 		return nil
 	}
@@ -214,14 +213,14 @@ func TestExecuteFailoverPolicy_ClientManagerError(t *testing.T) {
 	mockClientManager := new(mockClientManager)
 
 	clientManagerError := errors.New("failed to get clients")
-	mockClientManager.On("getClients", mock.Anything).Return([]*configurationClientWrapper{}, clientManagerError)
+	mockClientManager.On("getClients", mock.Anything).Return([]*appConfigClientWrapper{}, clientManagerError)
 
 	azappcfg := &AzureAppConfiguration{
 		clientManager: mockClientManager,
 	}
 
 	operationCallCount := 0
-	operation := func(client *azappconfig.Client) error {
+	operation := func(client appConfigClient) error {
 		operationCallCount++
 		return nil
 	}
@@ -345,11 +344,11 @@ func TestIsFailoverable(t *testing.T) {
 func TestExecuteFailoverPolicy_LoadBalancing_RotateClients(t *testing.T) {
 	mockClientManager := new(mockClientManager)
 
-	client1 := &azappconfig.Client{}
-	client2 := &azappconfig.Client{}
-	client3 := &azappconfig.Client{}
+	client1 := &appConfigurationClient{}
+	client2 := &appConfigurationClient{}
+	client3 := &appConfigurationClient{}
 
-	clientWrappers := []*configurationClientWrapper{
+	clientWrappers := []*appConfigClientWrapper{
 		{endpoint: "https://primary.azconfig.io", client: client1, failedAttempts: 0},
 		{endpoint: "https://replica1.azconfig.io", client: client2, failedAttempts: 0},
 		{endpoint: "https://replica2.azconfig.io", client: client3, failedAttempts: 0},
@@ -363,8 +362,8 @@ func TestExecuteFailoverPolicy_LoadBalancing_RotateClients(t *testing.T) {
 		lastSuccessfulEndpoint: "https://primary.azconfig.io", // Last successful was the first client
 	}
 
-	var usedClient *azappconfig.Client
-	operation := func(client *azappconfig.Client) error {
+	var usedClient appConfigClient
+	operation := func(client appConfigClient) error {
 		usedClient = client
 		return nil // Success
 	}
@@ -382,11 +381,11 @@ func TestExecuteFailoverPolicy_LoadBalancing_RotateClients(t *testing.T) {
 func TestExecuteFailoverPolicy_LoadBalancing_LastClientSuccessful(t *testing.T) {
 	mockClientManager := new(mockClientManager)
 
-	client1 := &azappconfig.Client{}
-	client2 := &azappconfig.Client{}
-	client3 := &azappconfig.Client{}
+	client1 := &appConfigurationClient{}
+	client2 := &appConfigurationClient{}
+	client3 := &appConfigurationClient{}
 
-	clientWrappers := []*configurationClientWrapper{
+	clientWrappers := []*appConfigClientWrapper{
 		{endpoint: "https://primary.azconfig.io", client: client1, failedAttempts: 0},
 		{endpoint: "https://replica1.azconfig.io", client: client2, failedAttempts: 0},
 		{endpoint: "https://replica2.azconfig.io", client: client3, failedAttempts: 0},
@@ -400,8 +399,8 @@ func TestExecuteFailoverPolicy_LoadBalancing_LastClientSuccessful(t *testing.T) 
 		lastSuccessfulEndpoint: "https://replica2.azconfig.io", // Last successful was the last client
 	}
 
-	var usedClient *azappconfig.Client
-	operation := func(client *azappconfig.Client) error {
+	var usedClient appConfigClient
+	operation := func(client appConfigClient) error {
 		usedClient = client
 		return nil // Success
 	}
@@ -419,10 +418,10 @@ func TestExecuteFailoverPolicy_LoadBalancing_LastClientSuccessful(t *testing.T) 
 func TestExecuteFailoverPolicy_LoadBalancing_Disabled(t *testing.T) {
 	mockClientManager := new(mockClientManager)
 
-	client1 := &azappconfig.Client{}
-	client2 := &azappconfig.Client{}
+	client1 := &appConfigurationClient{}
+	client2 := &appConfigurationClient{}
 
-	clientWrappers := []*configurationClientWrapper{
+	clientWrappers := []*appConfigClientWrapper{
 		{endpoint: "https://primary.azconfig.io", client: client1, failedAttempts: 0},
 		{endpoint: "https://replica.azconfig.io", client: client2, failedAttempts: 0},
 	}
@@ -435,8 +434,8 @@ func TestExecuteFailoverPolicy_LoadBalancing_Disabled(t *testing.T) {
 		lastSuccessfulEndpoint: "https://primary.azconfig.io",
 	}
 
-	var usedClient *azappconfig.Client
-	operation := func(client *azappconfig.Client) error {
+	var usedClient appConfigClient
+	operation := func(client appConfigClient) error {
 		usedClient = client
 		return nil // Success
 	}
@@ -455,9 +454,9 @@ func TestExecuteFailoverPolicy_LoadBalancing_Disabled(t *testing.T) {
 func TestExecuteFailoverPolicy_LoadBalancing_SingleClient(t *testing.T) {
 	mockClientManager := new(mockClientManager)
 
-	client1 := &azappconfig.Client{}
+	client1 := &appConfigurationClient{}
 
-	clientWrappers := []*configurationClientWrapper{
+	clientWrappers := []*appConfigClientWrapper{
 		{endpoint: "https://primary.azconfig.io", client: client1, failedAttempts: 0},
 	}
 
@@ -469,8 +468,8 @@ func TestExecuteFailoverPolicy_LoadBalancing_SingleClient(t *testing.T) {
 		lastSuccessfulEndpoint: "https://primary.azconfig.io",
 	}
 
-	var usedClient *azappconfig.Client
-	operation := func(client *azappconfig.Client) error {
+	var usedClient appConfigClient
+	operation := func(client appConfigClient) error {
 		usedClient = client
 		return nil // Success
 	}
@@ -486,19 +485,19 @@ func TestExecuteFailoverPolicy_LoadBalancing_SingleClient(t *testing.T) {
 
 // Test rotateClientsToNextEndpoint function directly
 func TestRotateClientsToNextEndpoint(t *testing.T) {
-	client1 := &azappconfig.Client{}
-	client2 := &azappconfig.Client{}
-	client3 := &azappconfig.Client{}
+	client1 := &appConfigurationClient{}
+	client2 := &appConfigurationClient{}
+	client3 := &appConfigurationClient{}
 
 	tests := []struct {
 		name                   string
-		clients                []*configurationClientWrapper
+		clients                []*appConfigClientWrapper
 		lastSuccessfulEndpoint string
 		expectedFirstClient    string
 	}{
 		{
 			name: "rotate from first to second",
-			clients: []*configurationClientWrapper{
+			clients: []*appConfigClientWrapper{
 				{endpoint: "https://primary.azconfig.io", client: client1},
 				{endpoint: "https://replica1.azconfig.io", client: client2},
 				{endpoint: "https://replica2.azconfig.io", client: client3},
@@ -508,7 +507,7 @@ func TestRotateClientsToNextEndpoint(t *testing.T) {
 		},
 		{
 			name: "rotate from middle to next",
-			clients: []*configurationClientWrapper{
+			clients: []*appConfigClientWrapper{
 				{endpoint: "https://primary.azconfig.io", client: client1},
 				{endpoint: "https://replica1.azconfig.io", client: client2},
 				{endpoint: "https://replica2.azconfig.io", client: client3},
@@ -518,7 +517,7 @@ func TestRotateClientsToNextEndpoint(t *testing.T) {
 		},
 		{
 			name: "rotate from last to first (wrap around)",
-			clients: []*configurationClientWrapper{
+			clients: []*appConfigClientWrapper{
 				{endpoint: "https://primary.azconfig.io", client: client1},
 				{endpoint: "https://replica1.azconfig.io", client: client2},
 				{endpoint: "https://replica2.azconfig.io", client: client3},
@@ -528,7 +527,7 @@ func TestRotateClientsToNextEndpoint(t *testing.T) {
 		},
 		{
 			name: "single client - no rotation",
-			clients: []*configurationClientWrapper{
+			clients: []*appConfigClientWrapper{
 				{endpoint: "https://primary.azconfig.io", client: client1},
 			},
 			lastSuccessfulEndpoint: "https://primary.azconfig.io",
@@ -536,7 +535,7 @@ func TestRotateClientsToNextEndpoint(t *testing.T) {
 		},
 		{
 			name:                   "empty clients - no panic",
-			clients:                []*configurationClientWrapper{},
+			clients:                []*appConfigClientWrapper{},
 			lastSuccessfulEndpoint: "https://primary.azconfig.io",
 			expectedFirstClient:    "", // No clients, so no first client
 		},
@@ -545,7 +544,7 @@ func TestRotateClientsToNextEndpoint(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			// Make a copy to avoid modifying the original slice
-			clientsCopy := make([]*configurationClientWrapper, len(tt.clients))
+			clientsCopy := make([]*appConfigClientWrapper, len(tt.clients))
 			copy(clientsCopy, tt.clients)
 
 			rotateClientsToNextEndpoint(clientsCopy, tt.lastSuccessfulEndpoint)
@@ -629,9 +628,9 @@ func TestRotateSliceInPlace(t *testing.T) {
 
 // Test client wrapper backoff behavior
 func TestClientWrapper_UpdateBackoffStatus(t *testing.T) {
-	client := &configurationClientWrapper{
+	client := &appConfigClientWrapper{
 		endpoint:       "https://test.azconfig.io",
-		client:         &azappconfig.Client{},
+		client:         &appConfigurationClient{},
 		failedAttempts: 0,
 		backOffEndTime: time.Time{},
 	}
@@ -657,9 +656,9 @@ func TestClientWrapper_UpdateBackoffStatus(t *testing.T) {
 
 // Test client wrapper backoff duration calculation
 func TestClientWrapper_GetBackoffDuration(t *testing.T) {
-	client := &configurationClientWrapper{
+	client := &appConfigClientWrapper{
 		endpoint:       "https://test.azconfig.io",
-		client:         &azappconfig.Client{},
+		client:         &appConfigurationClient{},
 		failedAttempts: 0,
 	}
 

@@ -44,6 +44,7 @@ const (
 	ReplicaCountKey                  = "ReplicaCount"
 	LoadBalancingEnabledTag          = "LB"
 	SnapshotReferenceTag             = "SnapshotRef"
+	EnhancedFeatureFlagTag           = "EnhFF"
 
 	// Feature flag usage tracing
 	FMGoVerEnv           = "MS_FEATURE_MANAGEMENT_GO_VERSION"
@@ -76,6 +77,7 @@ type Options struct {
 	UseAIConfiguration               bool
 	UseAIChatCompletionConfiguration bool
 	UseSnapshotReference             bool
+	UseEnhancedFeatureFlag           bool
 	IsFailoverRequest                bool
 	ReplicaCount                     int
 	IsLoadBalancingEnabled           bool
@@ -147,6 +149,10 @@ func CreateCorrelationContextHeader(ctx context.Context, options Options) http.H
 
 	if options.UseSnapshotReference {
 		features = append(features, SnapshotReferenceTag)
+	}
+
+	if options.UseEnhancedFeatureFlag {
+		features = append(features, EnhancedFeatureFlagTag)
 	}
 
 	if len(features) > 0 {
