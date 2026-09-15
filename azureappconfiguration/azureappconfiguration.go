@@ -75,6 +75,10 @@ type AzureAppConfiguration struct {
 // Load initializes a new AzureAppConfiguration instance and loads the configuration data from
 // Azure App Configuration service.
 //
+// Initial loading failures are delayed until at least five seconds have elapsed, unless the
+// caller's context ends or the startup timeout expires. Authentication/options validation and
+// client-construction failures are returned immediately.
+//
 // Parameters:
 //   - ctx: The context for the operation.
 //   - authentication: Authentication options for connecting to the Azure App Configuration service
@@ -774,7 +778,7 @@ func (azappcfg *AzureAppConfiguration) executeFailoverPolicy(ctx context.Context
 }
 
 // startupWithRetry implements retry logic for startup loading with timeout and exponential backoff
-func (azappcfg *AzureAppConfiguration) startupWithRetry(ctx context.Context, timeout time.Duration, operation func(context.Context) error) error {
+func (azappcfg *AzureAppConfiguration) startupWithRetry(ctx context.Context, timeout time.Duration, operation func(context.Context) error) (err error) {
 	// If no timeout is specified, use the default startup timeout
 	if timeout <= 0 {
 		timeout = defaultStartupTimeout
@@ -786,6 +790,24 @@ func (azappcfg *AzureAppConfiguration) startupWithRetry(ctx context.Context, tim
 
 	attempt := 0
 	startTime := time.Now()
+	defer func() {
+		if err == nil || startupCtx.Err() != nil {
+			return
+		}
+
+		// Slow down crash loops without delaying success or adding time after a long startup.
+		remainingDelay := minStartupFailureDelay - time.Since(startTime)
+		if remainingDelay <= 0 {
+			return
+		}
+
+		timer := time.NewTimer(remainingDelay)
+		defer timer.Stop()
+		select {
+		case <-startupCtx.Done():
+		case <-timer.C:
+		}
+	}()
 
 	for {
 		attempt++

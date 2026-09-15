@@ -73,5 +73,6 @@ const (
 
 // Startup constants
 const (
-	defaultStartupTimeout time.Duration = 100 * time.Second
+	defaultStartupTimeout  time.Duration = 100 * time.Second
+	minStartupFailureDelay time.Duration = 5 * time.Second
 )
